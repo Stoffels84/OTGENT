@@ -33,13 +33,12 @@ def norm(s) -> str:
 
 
 def clean_id(v) -> str:
-    """Maak personeelsnr consistent: behoud leading zeros, verwijder .0, trim spaties."""
+    """Maak nummers consistent: verwijder .0, trim spaties."""
     if v is None:
         return ""
     s = str(v).strip()
     if not s:
         return ""
-    # Excel leest soms nummers als float-string: "12345.0"
     if re.fullmatch(r"\d+\.0", s):
         s = s[:-2]
     return s.strip()
@@ -73,24 +72,33 @@ def parse_year(v) -> int | None:
         return None
 
 
-def _find_col_case_insensitive(df: pd.DataFrame, wanted: str) -> str | None:
+def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
+    """Case-insensitive kolom-zoeker + tolerant voor kleine varianten."""
     w = norm(wanted)
     for c in df.columns:
         if norm(c) == w:
             return c
-
-    if w == "personeelsnr":
-        for alt in ["personeelsnummer", "persnr", "persnr.", "personeelsnr."]:
+    # eenvoudige toleranties
+    if w == "nummer":
+        for alt in ["nr", "id", "persnr", "personeelsnr", "personeelsnummer"]:
             for c in df.columns:
                 if norm(c) == alt:
                     return c
-
+    if w == "datum":
+        for alt in ["date", "datum gesprek", "gespreksdatum"]:
+            for c in df.columns:
+                if norm(c) == alt:
+                    return c
+    if w == "info":
+        for alt in ["informatie", "opmerking", "opmerkingen", "beschrijving", "details"]:
+            for c in df.columns:
+                if norm(c) == alt:
+                    return c
     if w == "volledige naam":
-        for alt in ["naam", "volledige naam.", "volledige_naam", "volledige naam "]:
+        for alt in ["naam", "medewerker", "werknemer", "chauffeur"]:
             for c in df.columns:
                 if norm(c) == alt:
                     return c
-
     return None
 
 
@@ -127,7 +135,6 @@ def load_schade_df() -> pd.DataFrame:
     for r in ws.iter_rows(min_row=2, values_only=True):
         obj = {}
         any_val = False
-
         for col in SCHADE_COLS:
             i = idx_map.get(col)
             val = r[i] if (i is not None and i < len(r)) else None
@@ -169,43 +176,58 @@ def load_gesprekken_df() -> pd.DataFrame:
         raise FileNotFoundError(f"Bestand niet gevonden: {GESPREKKEN_XLSX_PATH.name} (zet dit naast app.py)")
 
     xls = pd.ExcelFile(GESPREKKEN_XLSX_PATH)
-
     if GESPREKKEN_SHEET_NAME not in xls.sheet_names:
         raise ValueError(
             f"Tabblad '{GESPREKKEN_SHEET_NAME}' niet gevonden in {GESPREKKEN_XLSX_PATH.name}. "
             f"Gevonden tabs: {xls.sheet_names}"
         )
 
-    # dtype=str => voorkomt dat personeelsnr als float (12345.0) binnenkomt
+    # dtype=str om nummer netjes te houden
     df = pd.read_excel(GESPREKKEN_XLSX_PATH, sheet_name=GESPREKKEN_SHEET_NAME, dtype=str)
 
-    pn_col = _find_col_case_insensitive(df, "personeelsnr")
-    nm_col = _find_col_case_insensitive(df, "volledige naam")
+    num_col = _find_col(df, "nummer")
+    date_col = _find_col(df, "Datum")
+    info_col = _find_col(df, "Info")
+    name_col = _find_col(df, "volledige naam")  # optioneel
 
-    if pn_col is None and nm_col is None:
-        raise ValueError(
-            "In 'gesprekken per thema' vind ik geen kolommen voor personeelsnr/naam. "
-            "Controleer de kolomnamen."
-        )
+    if num_col is None:
+        raise ValueError("Kolom 'nummer' (personeelsnr) niet gevonden in 'gesprekken per thema'.")
 
-    if pn_col is not None and pn_col != "personeelsnr":
-        df = df.rename(columns={pn_col: "personeelsnr"})
-    if nm_col is not None and nm_col != "volledige naam":
-        df = df.rename(columns={nm_col: "volledige naam"})
+    # Normaliseer naar vaste kolomnamen
+    if num_col != "nummer":
+        df = df.rename(columns={num_col: "nummer"})
+    if date_col and date_col != "Datum":
+        df = df.rename(columns={date_col: "Datum"})
+    if info_col and info_col != "Info":
+        df = df.rename(columns={info_col: "Info"})
+    if name_col and name_col != "volledige naam":
+        df = df.rename(columns={name_col: "volledige naam"})
 
-    if "personeelsnr" not in df.columns:
-        df["personeelsnr"] = ""
+    # Zorg dat kolommen bestaan
+    if "Datum" not in df.columns:
+        df["Datum"] = ""
+    if "Info" not in df.columns:
+        df["Info"] = ""
     if "volledige naam" not in df.columns:
         df["volledige naam"] = ""
 
-    # normalisatie
-    df["personeelsnr"] = df["personeelsnr"].apply(clean_id)
+    # Normaliseer velden
+    df["nummer"] = df["nummer"].apply(clean_id)
+    df["Datum"] = df["Datum"].apply(clean_text)
+    df["Info"] = df["Info"].apply(clean_text)
     df["volledige naam"] = df["volledige naam"].apply(clean_text)
 
+    # Voor uniform zoeken op personeelsnr gebruiken we ook een alias-kolom
+    df["personeelsnr"] = df["nummer"]
+
     df["_search"] = (
-        df["personeelsnr"].fillna("").astype(str) + " " +
-        df["volledige naam"].fillna("").astype(str)
+        df["nummer"].fillna("").astype(str) + " " +
+        df["volledige naam"].fillna("").astype(str) + " " +
+        df["Info"].fillna("").astype(str)
     ).str.lower()
+
+    # Optioneel: jaar uit gesprekken Datum (als je later ook filter wil)
+    df["_jaar"] = df["Datum"].apply(parse_year)
 
     return df
 
@@ -272,7 +294,7 @@ try:
     df_gesprekken = load_gesprekken_df()
 except Exception as e:
     st.warning(f"Gesprekkenbestand niet geladen: {e}")
-    df_gesprekken = pd.DataFrame(columns=["personeelsnr", "volledige naam", "_search"])
+    df_gesprekken = pd.DataFrame(columns=["nummer", "Datum", "Info", "volledige naam", "_search"])
 
 years = sorted([y for y in df_schade["_jaar"].dropna().unique().tolist() if y is not None], reverse=True)
 
@@ -320,7 +342,7 @@ if page == "Dashboard":
     st.subheader("Dashboard")
 
     q = st.text_input(
-        "Zoek op personeelsnr of volledige naam (en voertuig in schade)",
+        "Zoek op personeelsnr of naam (en voertuig in schade). In gesprekken zoekt hij op nummer/naam/info.",
         placeholder="Typ om te zoeken…",
     ).strip().lower()
 
@@ -328,15 +350,24 @@ if page == "Dashboard":
         st.caption("Typ iets in het zoekveld om resultaten te zien.")
         st.stop()
 
+    # Schade: personeelsnr + naam + voertuig
     schade_hits = df_schade_view[df_schade_view["_search"].str.contains(re.escape(q), na=False)].copy()
+
+    # Gesprekken: nummer + (optioneel) naam + info
     gesprekken_hits = df_gesprekken[df_gesprekken["_search"].str.contains(re.escape(q), na=False)].copy()
 
     st.markdown("#### Overzicht gesprekken (gesprekken per thema)")
     if len(gesprekken_hits) == 0:
         st.caption("Geen gesprekken gevonden voor deze zoekterm.")
     else:
-        cols = [c for c in gesprekken_hits.columns if c != "_search"]
-        st.dataframe(gesprekken_hits[cols].head(200), use_container_width=True, hide_index=True)
+        # toon compact: nummer, Datum, Info (+ naam als bestaat)
+        cols = ["nummer", "volledige naam", "Datum", "Info"]
+        cols = [c for c in cols if c in gesprekken_hits.columns]
+        st.dataframe(
+            gesprekken_hits[cols].head(300),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     st.markdown("#### Schade (BRON)")
     if len(schade_hits) == 0:
