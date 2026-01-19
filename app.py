@@ -1,5 +1,6 @@
 # app.py
 import re
+import base64
 import datetime as dt
 from pathlib import Path
 
@@ -69,6 +70,13 @@ def parse_year(v) -> int | None:
         return dt.datetime.fromisoformat(s).year
     except Exception:
         return None
+
+
+def img_to_data_uri(path: Path) -> str:
+    b = path.read_bytes()
+    ext = path.suffix.lower().lstrip(".")
+    mime = "png" if ext == "png" else ext
+    return f"data:image/{mime};base64,{base64.b64encode(b).decode('utf-8')}"
 
 
 def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
@@ -223,6 +231,9 @@ def load_gesprekken_df() -> pd.DataFrame:
         df["Info"].fillna("").astype(str)
     ).str.lower()
 
+    # ✅ jaar voor gesprekken (nodig voor jaarfilter)
+    df["_jaar"] = df["Datum"].apply(parse_year)
+
     return df
 
 
@@ -298,19 +309,26 @@ try:
     df_gesprekken = load_gesprekken_df()
 except Exception as e:
     st.warning(f"Gesprekkenbestand niet geladen: {e}")
-    df_gesprekken = pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search"])
+    df_gesprekken = pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search", "_jaar"])
 
-years = sorted([y for y in df_schade["_jaar"].dropna().unique().tolist() if y is not None], reverse=True)
+# ✅ Jaarlijst uit BOTH schade en gesprekken
+years_schade = df_schade["_jaar"].dropna().unique().tolist() if "_jaar" in df_schade.columns else []
+years_gespr = df_gesprekken["_jaar"].dropna().unique().tolist() if "_jaar" in df_gesprekken.columns else []
+years = sorted({int(y) for y in (years_schade + years_gespr) if y is not None}, reverse=True)
 
 # ----------------------------
 # Topbar
 # ----------------------------
 st.markdown('<div class="ot-topbar">', unsafe_allow_html=True)
 
-c1, c2, c3 = st.columns([2.4, 1.2, 3.2], vertical_alignment="center")
+c1, c2, c3 = st.columns([2.4, 1.2, 3.2])
 
 with c1:
-    logo_html = f'<img class="ot-logo" src="logo.png" alt="Logo" />' if LOGO_PATH.exists() else ""
+    logo_html = (
+        f'<img class="ot-logo" src="{img_to_data_uri(LOGO_PATH)}" alt="Logo" />'
+        if LOGO_PATH.exists()
+        else ""
+    )
     st.markdown(
         f"""
         <div class="ot-brand">
@@ -337,7 +355,18 @@ with c3:
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-df_schade_view = df_schade[df_schade["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_schade.copy()
+# ✅ Views (jaarfilter op BEIDE)
+df_schade_view = (
+    df_schade[df_schade["_jaar"] == int(year_choice)].copy()
+    if year_choice != "Alle"
+    else df_schade.copy()
+)
+
+df_gesprekken_view = (
+    df_gesprekken[df_gesprekken["_jaar"] == int(year_choice)].copy()
+    if year_choice != "Alle"
+    else df_gesprekken.copy()
+)
 
 # ----------------------------
 # Pages
@@ -355,7 +384,7 @@ if page == "Dashboard":
         st.stop()
 
     schade_hits = df_schade_view[df_schade_view["_search"].str.contains(re.escape(q), na=False)].copy()
-    gesprekken_hits = df_gesprekken[df_gesprekken["_search"].str.contains(re.escape(q), na=False)].copy()
+    gesprekken_hits = df_gesprekken_view[df_gesprekken_view["_search"].str.contains(re.escape(q), na=False)].copy()
 
     st.markdown("#### Overzicht gesprekken (gesprekken per thema)")
     if len(gesprekken_hits) == 0:
