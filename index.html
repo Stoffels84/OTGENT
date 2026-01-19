@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Analyse en rapportering OT Gent</title>
+
+  <style>
+    :root{
+      --bg: #0b0f14;
+      --panel: #0f1621;
+      --panel-2: #121c2a;
+      --text: #e6edf3;
+      --muted: #9aa4b2;
+      --border: rgba(255,255,255,.08);
+      --accent: #4aa3ff;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --radius: 16px;
+    }
+    *{ box-sizing: border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Helvetica Neue", sans-serif;
+      background: radial-gradient(1200px 700px at 15% 5%, rgba(74,163,255,.10), transparent 60%),
+                  radial-gradient(900px 600px at 90% 20%, rgba(120,80,255,.10), transparent 55%),
+                  var(--bg);
+      color: var(--text);
+    }
+    .topbar{
+      position: sticky;
+      top:0;
+      z-index: 50;
+      display:flex;
+      gap: 16px;
+      align-items:center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: rgba(15, 22, 33, .82);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-wrap{
+      display:flex;
+      align-items:center;
+      gap: 12px;
+      min-width: 260px;
+    }
+    .logo{
+      width: 38px;
+      height: 38px;
+      object-fit: contain;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.03);
+      padding: 6px;
+    }
+    .brand{ display:flex; flex-direction:column; gap:2px; }
+    .brand-title{ font-size: 16px; font-weight: 700; letter-spacing:.2px; }
+    .brand-subtitle{ font-size: 12px; color: var(--muted); }
+
+    .topbar-right{
+      display:flex;
+      align-items:center;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .filter{
+      display:flex;
+      align-items:center;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255,255,255,.02);
+    }
+    .filter label{
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: .3px;
+    }
+    .filter select{
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.03);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 6px 10px;
+      outline: none;
+    }
+
+    .status{
+      display:flex;
+      align-items:center;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255,255,255,.02);
+      font-size: 12px;
+      color: var(--muted);
+      max-width: 420px;
+    }
+    .dot{
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(154,164,178,.9);
+      box-shadow: 0 0 0 3px rgba(154,164,178,.12);
+      flex: 0 0 auto;
+    }
+    .dot.ok{
+      background: rgba(74,163,255,.95);
+      box-shadow: 0 0 0 3px rgba(74,163,255,.14);
+    }
+    .dot.bad{
+      background: rgba(255,90,90,.95);
+      box-shadow: 0 0 0 3px rgba(255,90,90,.14);
+    }
+    .status-text{
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tabs{
+      display:flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .tab{
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.02);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 999px;
+      cursor:pointer;
+      transition: transform .05s ease, background .2s ease, border-color .2s ease;
+      user-select: none;
+    }
+    .tab:hover{ background: rgba(255,255,255,.05); }
+    .tab:active{ transform: translateY(1px); }
+    .tab.active{
+      background: rgba(74,163,255,.14);
+      border-color: rgba(74,163,255,.35);
+    }
+
+    .container{
+      width: min(1100px, calc(100% - 32px));
+      margin: 18px auto 48px;
+    }
+    .submenu-label{
+      color: var(--muted);
+      font-size: 13px;
+      margin: 10px 6px 12px;
+      text-transform: lowercase;
+      letter-spacing: .6px;
+    }
+    .card{
+      background: linear-gradient(180deg, rgba(18,28,42,.9), rgba(15,22,33,.9));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+    .muted{ color: var(--muted); }
+    .page{ display:none; margin-top: 16px; }
+    .page.active{ display:block; }
+    .page-header h1{ margin: 0 0 4px; font-size: 22px; }
+    .page-header p{ margin: 0 0 14px; }
+
+    /* Search */
+    .search-wrap{ display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; }
+    .search-box{ position:relative; flex: 1 1 520px; min-width: 260px; }
+    .search-input{
+      width: 100%;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.03);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 12px 12px;
+      outline: none;
+      font-size: 14px;
+    }
+    .search-input::placeholder{ color: rgba(154,164,178,.75); }
+
+    .suggestions{
+      position:absolute;
+      left:0; right:0;
+      top: calc(100% + 8px);
+      background: rgba(15, 22, 33, .98);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      display:none;
+      z-index: 40;
+    }
+    .suggestions.show{ display:block; }
+    .s-item{
+      padding: 10px 12px;
+      cursor:pointer;
+      display:flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-top: 1px solid rgba(255,255,255,.06);
+    }
+    .s-item:first-child{ border-top:none; }
+    .s-item:hover{ background: rgba(255,255,255,.05); }
+    .s-left{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .s-title{
+      font-size: 13px;
+      color: var(--text);
+      overflow:hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .s-meta{
+      font-size: 12px;
+      color: var(--muted);
+      overflow:hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .s-tag{
+      font-size: 11px;
+      color: rgba(74,163,255,.9);
+      border: 1px solid rgba(74,163,255,.25);
+      padding: 4px 8px;
+      border-radius: 999px;
+      flex: 0 0 auto;
+      height: fit-content;
+      align-self: center;
+    }
+
+    table{
+      width:100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      overflow:hidden;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.02);
+    }
+    th, td{
+      text-align:left;
+      padding: 10px 10px;
+      border-top: 1px solid rgba(255,255,255,.06);
+      vertical-align: top;
+      font-size: 13px;
+    }
+    th{
+      color: var(--muted);
+      font-weight: 600;
+      border-top:none;
+      background: rgba(255,255,255,.02);
+    }
+    .link a{ color: rgba(74,163,255,.95); text-decoration:none; }
+    .link a:hover{ text-decoration:underline; }
+  </style>
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <img class="logo" src="logo.png" alt="Logo" />
+      <div class="brand">
+        <div class="brand-title">Analyse en rapportering OT Gent</div>
+        <div class="brand-subtitle">OT Gent</div>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <div class="filter" title="Filter op jaartal">
+        <label for="yearSelect">Jaar</label>
+        <select id="yearSelect" disabled>
+          <option value="all">Alle</option>
+        </select>
+      </div>
+
+      <div class="status" title="Status">
+        <span id="statusDot" class="dot"></span>
+        <span id="statusText" class="status-text">Initialiseren…</span>
+      </div>
+
+      <nav class="tabs" aria-label="Hoofdmenu">
+        <button class="tab active" data-tab="dashboard">Dashboard</button>
+        <button class="tab" data-tab="chauffeur">Chauffeur</button>
+        <button class="tab" data-tab="voertuig">Voertuig</button>
+        <button class="tab" data-tab="locatie">Locatie</button>
+        <button class="tab" data-tab="coaching">Coaching</button>
+        <button class="tab" data-tab="analyse">Analyse</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="submenu-label">schade</div>
+
+    <section id="page-dashboard" class="page active">
+      <div class="page-header">
+        <h1>Dashboard</h1>
+        <p class="muted">Zoek op personeelsnr, volledige naam of voertuig (BRON).</p>
+      </div>
+
+      <div class="card">
+        <div class="search-wrap">
+          <div class="search-box">
+            <input id="searchInput" class="search-input" type="text"
+              placeholder="Zoek: personeelsnr, volledige naam, voertuig…" autocomplete="off" />
+            <div id="suggestions" class="suggestions" role="listbox" aria-label="Suggesties"></div>
+          </div>
+        </div>
+
+        <div id="searchInfo" class="muted" style="margin-top:10px; font-size:12px;">
+          Laden…
+        </div>
+
+        <div id="resultsWrap"></div>
+      </div>
+    </section>
+
+    <section id="page-chauffeur" class="page"><div class="card">Later…</div></section>
+    <section id="page-voertuig" class="page"><div class="card">Later…</div></section>
+    <section id="page-locatie" class="page"><div class="card">Later…</div></section>
+    <section id="page-coaching" class="page"><div class="card">Later…</div></section>
+    <section id="page-analyse" class="page"><div class="card">Later…</div></section>
+  </main>
+
+  <script>
+    // ---------------- Tabs ----------------
+    const tabs = document.querySelectorAll(".tab");
+    const pages = {
+      dashboard: document.getElementById("page-dashboard"),
+      chauffeur: document.getElementById("page-chauffeur"),
+      voertuig: document.getElementById("page-voertuig"),
+      locatie: document.getElementById("page-locatie"),
+      coaching: document.getElementById("page-coaching"),
+      analyse: document.getElementById("page-analyse"),
+    };
+    tabs.forEach(btn => {
+      btn.addEventListener("click", () => {
+        tabs.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        Object.values(pages).forEach(p => p.classList.remove("active"));
+        pages[btn.dataset.tab].classList.add("active");
+      });
+    });
+
+    // ---------------- Status UI ----------------
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+    function setStatus(state, text){
+      statusDot.classList.remove("ok","bad");
+      if (state === "ok") statusDot.classList.add("ok");
+      if (state === "bad") statusDot.classList.add("bad");
+      statusText.textContent = text;
+    }
+
+    // ---------------- Elements ----------------
+    const yearSelect = document.getElementById("yearSelect");
+    const searchInput = document.getElementById("searchInput");
+    const suggestionsEl = document.getElementById("suggestions");
+    const resultsWrap = document.getElementById("resultsWrap");
+    const searchInfo = document.getElementById("searchInfo");
+
+    // ---------------- Store ----------------
+    const store = {
+      years: [],
+      year: "all",
+      cacheItems: [], // huidige dataset (jaar-filter)
+    };
+
+    // ---------------- Init ----------------
+    document.addEventListener("DOMContentLoaded", () => init());
+
+    async function init(){
+      setStatus("neutral", "Backend check…");
+      try{
+        await fetchJSON("/api/health");
+      }catch(e){
+        setStatus("bad", "Backend niet bereikbaar ❌");
+        searchInfo.textContent = "Backend niet bereikbaar. Start uvicorn en open via http://localhost:8000";
+        return;
+      }
+
+      setStatus("neutral", "Jaren ophalen…");
+      await loadYears();
+
+      yearSelect.addEventListener("change", async () => {
+        store.year = yearSelect.value;
+        await loadBron(); // refresh cache
+        renderSuggestions(searchInput.value.trim());
+        renderResults(searchInput.value.trim());
+      });
+
+      searchInput.addEventListener("input", () => {
+        const q = searchInput.value.trim();
+        renderSuggestions(q);
+        renderResults(q);
+      });
+
+      searchInput.addEventListener("focus", () => renderSuggestions(searchInput.value.trim()));
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest(".search-box")) suggestionsEl.classList.remove("show");
+      });
+
+      // load initial data
+      setStatus("neutral", "BRON laden…");
+      await loadBron();
+      setStatus("ok", "Klaar ✅");
+      yearSelect.disabled = false;
+      searchInfo.textContent = `Records (jaarfilter): ${store.cacheItems.length}`;
+    }
+
+    async function loadYears(){
+      const r = await fetchJSON("/api/jaren");
+      store.years = r.years || [];
+
+      yearSelect.innerHTML = "";
+      const optAll = document.createElement("option");
+      optAll.value = "all";
+      optAll.textContent = "Alle";
+      yearSelect.appendChild(optAll);
+
+      store.years.forEach(y => {
+        const o = document.createElement("option");
+        o.value = String(y);
+        o.textContent = String(y);
+        yearSelect.appendChild(o);
+      });
+
+      yearSelect.value = "all";
+      store.year = "all";
+    }
+
+    async function loadBron(){
+      const params = new URLSearchParams();
+      if (store.year !== "all") params.set("jaar", store.year);
+      // init load: geen q, we halen max 2000 voor snelle suggesties in frontend
+      params.set("limit", "2000");
+
+      const r = await fetchJSON("/api/bron?" + params.toString());
+      store.cacheItems = r.items || [];
+      searchInfo.textContent = `Records (jaarfilter): ${store.cacheItems.length}`;
+    }
+
+    // ---------------- Suggestions ----------------
+    let activeIndex = -1;
+    searchInput.addEventListener("keydown", (e) => {
+      const items = [...suggestionsEl.querySelectorAll(".s-item")];
+      if (!items.length) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, items.length - 1);
+        items.forEach((it,i)=>it.style.background = i===activeIndex ? "rgba(255,255,255,.07)" : "");
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        items.forEach((it,i)=>it.style.background = i===activeIndex ? "rgba(255,255,255,.07)" : "");
+      } else if (e.key === "Enter") {
+        if (activeIndex >= 0 && items[activeIndex]) {
+          e.preventDefault();
+          items[activeIndex].click();
+        }
+      } else if (e.key === "Escape") {
+        suggestionsEl.classList.remove("show");
+      }
+    });
+
+    function renderSuggestions(query){
+      activeIndex = -1;
+      suggestionsEl.innerHTML = "";
+      suggestionsEl.classList.remove("show");
+
+      if (!query) return;
+      if (!store.cacheItems.length) return;
+
+      const q = query.toLowerCase();
+      const matches = [];
+
+      for (const r of store.cacheItems){
+        const pn = safeStr(r.personeelsnr);
+        const nm = safeStr(r["volledige naam"]);
+        const vh = safeStr(r.voertuig);
+
+        if (pn.toLowerCase().includes(q) && pn) matches.push({ type:"personeelsnr", value: pn, row: r });
+        if (nm.toLowerCase().includes(q) && nm) matches.push({ type:"naam", value: nm, row: r });
+        if (vh.toLowerCase().includes(q) && vh) matches.push({ type:"voertuig", value: vh, row: r });
+
+        if (matches.length > 120) break;
+      }
+
+      const seen = new Set();
+      const uniq = [];
+      for (const m of matches){
+        const key = m.type + "|" + m.value.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        uniq.push(m);
+        if (uniq.length >= 10) break;
+      }
+
+      if (!uniq.length) return;
+
+      suggestionsEl.innerHTML = uniq.map(s => {
+        const meta = metaForSuggestion(s);
+        const tag = s.type === "personeelsnr" ? "PN" : (s.type === "naam" ? "NAAM" : "VOERTUIG");
+        return `
+          <div class="s-item" role="option" tabindex="-1" data-value="${escapeHtml(s.value)}">
+            <div class="s-left">
+              <div class="s-title">${highlight(s.value, query)}</div>
+              <div class="s-meta">${escapeHtml(meta)}</div>
+            </div>
+            <div class="s-tag">${tag}</div>
+          </div>
+        `;
+      }).join("");
+
+      suggestionsEl.querySelectorAll(".s-item").forEach(el => {
+        el.addEventListener("click", () => {
+          const v = el.getAttribute("data-value") || "";
+          searchInput.value = v;
+          suggestionsEl.classList.remove("show");
+          renderResults(v);
+        });
+      });
+
+      suggestionsEl.classList.add("show");
+    }
+
+    function metaForSuggestion(s){
+      const r = s.row || {};
+      const pn = safeStr(r.personeelsnr);
+      const nm = safeStr(r["volledige naam"]);
+      const vh = safeStr(r.voertuig);
+      if (s.type === "personeelsnr") return `${nm}${vh ? " • " + vh : ""}`;
+      if (s.type === "naam") return `${pn}${vh ? " • " + vh : ""}`;
+      return `${pn}${nm ? " • " + nm : ""}`;
+    }
+
+    // ---------------- Results ----------------
+    function renderResults(query){
+      resultsWrap.innerHTML = "";
+
+      if (!store.cacheItems.length){
+        searchInfo.textContent = "Geen data.";
+        return;
+      }
+
+      const q = (query || "").trim().toLowerCase();
+      if (!q){
+        searchInfo.textContent = `Typ om te zoeken. Records (jaarfilter): ${store.cacheItems.length}`;
+        return;
+      }
+
+      const rows = store.cacheItems.filter(r => {
+        const pn = safeStr(r.personeelsnr).toLowerCase();
+        const nm = safeStr(r["volledige naam"]).toLowerCase();
+        const vh = safeStr(r.voertuig).toLowerCase();
+        return pn.includes(q) || nm.includes(q) || vh.includes(q);
+      });
+
+      searchInfo.textContent = `Resultaten: ${rows.length} (jaarfilter: ${store.year === "all" ? "Alle" : store.year})`;
+      const show = rows.slice(0, 50);
+
+      resultsWrap.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Personeelsnr</th>
+              <th>Volledige naam</th>
+              <th>Datum</th>
+              <th>Voertuig</th>
+              <th>Bus/Tram</th>
+              <th>Type</th>
+              <th>Locatie</th>
+              <th>Link</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${show.map(r => rowToTr(r)).join("")}
+          </tbody>
+        </table>
+        <div class="muted" style="font-size:12px; margin-top:10px;">Toon max. 50 rijen.</div>
+      `;
+    }
+
+    function rowToTr(r){
+      const link = safeStr(r.Link);
+      const linkCell = link
+        ? `<td class="link"><a href="${escapeAttr(link)}" target="_blank" rel="noopener">Open</a></td>`
+        : `<td class="muted">—</td>`;
+
+      return `
+        <tr>
+          <td>${escapeHtml(safeStr(r.personeelsnr) || "—")}</td>
+          <td>${escapeHtml(safeStr(r["volledige naam"]) || "—")}</td>
+          <td>${escapeHtml(safeStr(r.Datum) || "—")}</td>
+          <td>${escapeHtml(safeStr(r.voertuig) || "—")}</td>
+          <td>${escapeHtml(safeStr(r["bus/tram"]) || "—")}</td>
+          <td>${escapeHtml(safeStr(r.type) || "—")}</td>
+          <td>${escapeHtml(safeStr(r.Locatie) || "—")}</td>
+          ${linkCell}
+        </tr>
+      `;
+    }
+
+    // ---------------- Fetch + utils ----------------
+    async function fetchJSON(url){
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status} voor ${url}`);
+      return await res.json();
+    }
+    function safeStr(v){ return (v == null) ? "" : String(v); }
+    function escapeHtml(str){
+      return String(str ?? "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+    function escapeAttr(str){
+      return String(str ?? "").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+    }
+    function highlight(text, q){
+      const t = String(text ?? "");
+      const qq = String(q ?? "");
+      if (!qq) return escapeHtml(t);
+      const i = t.toLowerCase().indexOf(qq.toLowerCase());
+      if (i < 0) return escapeHtml(t);
+      const a = t.slice(0,i);
+      const b = t.slice(i, i+qq.length);
+      const c = t.slice(i+qq.length);
+      return `${escapeHtml(a)}<span style="color:rgba(74,163,255,.95)">${escapeHtml(b)}</span>${escapeHtml(c)}`;
+    }
+
+    // Set status color classes
+    (function patchStatusClasses(){
+      const style = document.createElement("style");
+      style.textContent = `.dot.ok{background:rgba(74,163,255,.95);box-shadow:0 0 0 3px rgba(74,163,255,.14)}
+      .dot.bad{background:rgba(255,90,90,.95);box-shadow:0 0 0 3px rgba(255,90,90,.14)}`;
+      document.head.appendChild(style);
+    })();
+
+    // Make dot neutral initially
+    setStatus("neutral", "Initialiseren…");
+  </script>
+</body>
+</html>
