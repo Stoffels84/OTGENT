@@ -26,9 +26,6 @@ SCHADE_COLS = [
     "type",
 ]
 
-# Voor gesprekken: we lezen alle kolommen, maar we moeten minstens deze 2 kunnen vinden
-GESPREK_KEY_COLS = ["personeelsnr", "volledige naam"]
-
 
 def norm(s) -> str:
     return str(s).strip().lower()
@@ -63,7 +60,6 @@ def _find_col_case_insensitive(df: pd.DataFrame, wanted: str) -> str | None:
     for c in df.columns:
         if norm(c) == w:
             return c
-    # tolerant voor varianten
     if w == "personeelsnr":
         for alt in ["personeelsnr.", "personeelsnummer", "persnr", "persnr."]:
             for c in df.columns:
@@ -87,7 +83,6 @@ def load_schade_df() -> pd.DataFrame:
         raise ValueError(f"Tabblad '{SCHADESHEET}' niet gevonden in {XLSM_PATH.name}")
 
     ws = wb[SCHADESHEET]
-
     header = [c.value for c in ws[1]]
     header_map = {norm(h): idx for idx, h in enumerate(header)}
 
@@ -146,22 +141,18 @@ def load_gesprekken_df() -> pd.DataFrame:
     if not GESPREKKEN_XLSX_PATH.exists():
         raise FileNotFoundError(f"Bestand niet gevonden: {GESPREKKEN_XLSX_PATH.name} (zet dit naast app.py)")
 
-    # Lees eerste sheet standaard
     xls = pd.ExcelFile(GESPREKKEN_XLSX_PATH)
     sheet = xls.sheet_names[0]
     df = pd.read_excel(GESPREKKEN_XLSX_PATH, sheet_name=sheet)
 
-    # Vind de juiste kolommen (case-insensitive / tolerant)
     pn_col = _find_col_case_insensitive(df, "personeelsnr")
     nm_col = _find_col_case_insensitive(df, "volledige naam")
 
     if pn_col is None and nm_col is None:
         raise ValueError(
-            "In 'overzicht gesprekken (aangepast).xlsx' vind ik geen kolommen voor personeelsnr/naam. "
-            "Controleer de headernamen."
+            "In 'Overzicht gesprekken (aangepast).xlsx' vind ik geen kolommen voor personeelsnr/naam."
         )
 
-    # Normaliseer naar vaste kolomnamen (zodat de rest van de code simpel blijft)
     if pn_col is not None and pn_col != "personeelsnr":
         df = df.rename(columns={pn_col: "personeelsnr"})
     if nm_col is not None and nm_col != "volledige naam":
@@ -281,7 +272,6 @@ with c3:
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# Apply year filter on schade (gesprekken hebben geen Datum-filter tenzij jij dat later wil)
 df_schade_view = df_schade[df_schade["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_schade.copy()
 
 # ----------------------------
@@ -299,24 +289,15 @@ if page == "Dashboard":
         st.caption("Typ iets in het zoekveld om resultaten te zien.")
         st.stop()
 
-    # 1) Zoek in schade (personeelsnr/naam/voertuig)
     schade_hits = df_schade_view[df_schade_view["_search"].str.contains(re.escape(q), na=False)].copy()
-
-    # 2) Zoek in gesprekken (personeelsnr/naam)
     gesprekken_hits = df_gesprekken[df_gesprekken["_search"].str.contains(re.escape(q), na=False)].copy()
 
-    # Toon: gesprekken eerst (compact), dan schade (details)
     st.markdown("#### Overzicht gesprekken")
     if len(gesprekken_hits) == 0:
         st.caption("Geen gesprekken gevonden voor deze zoekterm.")
     else:
-        # toon alle originele kolommen behalve interne _search
         cols = [c for c in gesprekken_hits.columns if c != "_search"]
-        st.dataframe(
-            gesprekken_hits[cols].head(200),
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.dataframe(gesprekken_hits[cols].head(200), use_container_width=True, hide_index=True)
 
     st.markdown("#### Schade (BRON)")
     if len(schade_hits) == 0:
