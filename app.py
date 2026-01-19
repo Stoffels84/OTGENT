@@ -296,14 +296,26 @@ st.markdown(
       }
       div[role="radiogroup"] > label:hover { background: rgba(255,255,255,.05); }
 
-      /* ✅ Tekstterugloop in data_editor/dataframe cellen */
-      div[data-testid="stDataFrame"] div[role="gridcell"]{
+      /* ✅ Tekstterugloop in zowel dataframe als data_editor */
+      div[data-testid="stDataFrame"] div[role="gridcell"],
+      div[data-testid="stDataEditor"] div[role="gridcell"]{
         white-space: normal !important;
         line-height: 1.35 !important;
         overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+        align-items: flex-start !important;
       }
-      div[data-testid="stDataFrame"] div[role="row"]{
+
+      /* ✅ Rijhoogte automatisch laten meegroeien */
+      div[data-testid="stDataFrame"] div[role="row"],
+      div[data-testid="stDataEditor"] div[role="row"]{
         height: auto !important;
+      }
+
+      /* ✅ Zorg dat cellen bovenaan starten */
+      div[data-testid="stDataFrame"] div[role="gridcell"] > div,
+      div[data-testid="stDataEditor"] div[role="gridcell"] > div{
+        align-items: flex-start !important;
       }
     </style>
     """,
@@ -408,12 +420,11 @@ if page == "Dashboard":
         display_gesprekken = gesprekken_hits[cols].copy()
         display_gesprekken["Datum"] = display_gesprekken["Datum"].apply(format_ddmmyyyy)
 
-        # ✅ eerste 3 kolommen smaller, Info zo breed mogelijk
-        st.data_editor(
+        # ✅ Gebruik st.dataframe voor betere wrap/rijhoogte (read-only)
+        st.dataframe(
             display_gesprekken.head(300),
             use_container_width=True,
             hide_index=True,
-            disabled=True,
             column_config={
                 "nummer": st.column_config.TextColumn("nummer", width="small"),
                 "Chauffeurnaam": st.column_config.TextColumn("Chauffeurnaam", width="small"),
@@ -429,11 +440,11 @@ if page == "Dashboard":
         show = schade_hits[SCHADE_COLS].head(500).copy()
         show["Datum"] = show["Datum"].apply(format_ddmmyyyy)
 
-        st.data_editor(
+        # ✅ Ook schade read-only tonen met dataframe (wrap)
+        st.dataframe(
             show,
             use_container_width=True,
             hide_index=True,
-            disabled=True,
             column_config={
                 "personeelsnr": st.column_config.TextColumn("personeelsnr", width="small"),
                 "volledige naam": st.column_config.TextColumn("volledige naam", width="medium"),
