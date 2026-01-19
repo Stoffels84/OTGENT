@@ -1,3 +1,4 @@
+# app.py
 import re
 import datetime as dt
 from pathlib import Path
@@ -55,7 +56,9 @@ def parse_year(v) -> int | None:
 @st.cache_data(show_spinner=False)
 def load_bron_df() -> pd.DataFrame:
     if not XLSM_PATH.exists():
-        raise FileNotFoundError(f"Bestand niet gevonden: {XLSM_PATH.name}")
+        raise FileNotFoundError(
+            f"Bestand niet gevonden: {XLSM_PATH.name} (zet dit naast app.py)"
+        )
 
     wb = openpyxl.load_workbook(XLSM_PATH, data_only=True, keep_vba=True)
     if SHEET_NAME not in wb.sheetnames:
@@ -70,7 +73,6 @@ def load_bron_df() -> pd.DataFrame:
         key = norm(col)
         if key in header_map:
             return header_map[key]
-        # tolerant voor varianten
         if col == "bus/tram":
             for alt in ["bus/ tram", "bus / tram", "bus - tram"]:
                 if alt in header_map:
@@ -103,15 +105,11 @@ def load_bron_df() -> pd.DataFrame:
             rows.append(obj)
 
     df = pd.DataFrame(rows)
-
-    # Zorg dat alle vereiste kolommen bestaan (ook als leeg)
     for c in REQUIRED_COLS:
         if c not in df.columns:
             df[c] = None
 
     df["_jaar"] = df["Datum"].apply(parse_year)
-
-    # zoekveld index
     df["_search"] = (
         df["personeelsnr"].fillna("").astype(str) + " " +
         df["volledige naam"].fillna("").astype(str) + " " +
@@ -121,132 +119,174 @@ def load_bron_df() -> pd.DataFrame:
     return df
 
 
-def build_suggestions(df: pd.DataFrame, q: str, limit: int = 10) -> list[str]:
-    q = (q or "").strip().lower()
-    if not q:
-        return []
-
-    candidates = []
-
-    # unieke suggesties uit 3 velden
-    for col in ["personeelsnr", "volledige naam", "voertuig"]:
-        vals = df[col].dropna().astype(str).unique().tolist()
-        for v in vals:
-            if q in v.lower():
-                candidates.append(v)
-
-    # dedup + limit
-    seen = set()
-    out = []
-    for v in candidates:
-        key = v.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(v)
-        if len(out) >= limit:
-            break
-    return out
-
-
-# =========================
-# Streamlit UI
-# =========================
+# ----------------------------
+# Streamlit page setup
+# ----------------------------
 st.set_page_config(page_title="Analyse en rapportering OT Gent", layout="wide")
 
-# Sidebar
-with st.sidebar:
-    if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), use_container_width=True)
-    st.markdown("### Analyse en rapportering OT Gent")
-    st.caption("schade")
+# Make a "top sidebar" (topbar) via CSS and a container
+st.markdown(
+    """
+    <style>
+      /* overall dark look */
+      .stApp {
+        background: radial-gradient(1200px 700px at 15% 5%, rgba(74,163,255,.10), transparent 60%),
+                    radial-gradient(900px 600px at 90% 20%, rgba(120,80,255,.10), transparent 55%),
+                    #0b0f14;
+      }
 
+      /* hide default sidebar if you don't use it */
+      section[data-testid="stSidebar"] { display: none; }
+
+      /* Topbar container styling */
+      .ot-topbar {
+        position: sticky;
+        top: 0;
+        z-index: 999;
+        background: rgba(15, 22, 33, .86);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid rgba(255,255,255,.08);
+        padding: 10px 14px;
+        border-radius: 14px;
+        margin-bottom: 14px;
+      }
+
+      .ot-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .ot-logo {
+        width: 38px;
+        height: 38px;
+        object-fit: contain;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,.08);
+        background: rgba(255,255,255,.03);
+        padding: 6px;
+      }
+      .ot-title { font-size: 16px; font-weight: 700; color: #e6edf3; line-height: 1.1; }
+      .ot-sub   { font-size: 12px; color: #9aa4b2; margin-top: 2px; }
+
+      /* reduce padding around main block */
+      .block-container { padding-top: 0.5rem; }
+
+      /* make radio look like pills */
+      div[role="radiogroup"] > label {
+        background: rgba(255,255,255,.02);
+        border: 1px solid rgba(255,255,255,.08);
+        padding: 8px 12px !important;
+        border-radius: 999px !important;
+        margin-right: 8px !important;
+      }
+      div[role="radiogroup"] > label:hover {
+        background: rgba(255,255,255,.05);
+      }
+
+      /* remove extra label spacing on inputs */
+      .stRadio > label, .stSelectbox > label, .stTextInput > label { font-weight: 600; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ----------------------------
 # Load data
+# ----------------------------
 try:
     df = load_bron_df()
 except Exception as e:
     st.error(f"Kan data niet laden: {e}")
     st.stop()
 
-# Jaarfilter
 years = sorted([y for y in df["_jaar"].dropna().unique().tolist() if y is not None], reverse=True)
-with st.sidebar:
+
+# ----------------------------
+# Topbar UI (acts as "sidebar bovenaan")
+# ----------------------------
+st.markdown('<div class="ot-topbar">', unsafe_allow_html=True)
+
+c1, c2, c3 = st.columns([2.4, 1.2, 3.2], vertical_alignment="center")
+
+with c1:
+    logo_html = ""
+    if LOGO_PATH.exists():
+        logo_html = f'<img class="ot-logo" src="logo.png" alt="Logo" />'
+    st.markdown(
+        f"""
+        <div class="ot-brand">
+          {logo_html}
+          <div>
+            <div class="ot-title">Analyse en rapportering OT Gent</div>
+            <div class="ot-sub">schade</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with c2:
     year_choice = st.selectbox("Jaar", ["Alle"] + [str(y) for y in years], index=0)
 
+with c3:
+    page = st.radio(
+        "Menu",
+        ["Dashboard", "Chauffeur", "Voertuig", "Locatie", "Coaching", "Analyse"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+# Apply year filter
 if year_choice != "Alle":
     df_view = df[df["_jaar"] == int(year_choice)].copy()
 else:
     df_view = df.copy()
 
-# Top menu (tabs)
-tab_dashboard, tab_chauffeur, tab_voertuig, tab_locatie, tab_coaching, tab_analyse = st.tabs(
-    ["Dashboard", "Chauffeur", "Voertuig", "Locatie", "Coaching", "Analyse"]
-)
-
-# Dashboard: zoek + suggesties
-with tab_dashboard:
+# ----------------------------
+# Pages
+# ----------------------------
+if page == "Dashboard":
     st.subheader("Dashboard")
-
-    if "q" not in st.session_state:
-        st.session_state.q = ""
 
     q = st.text_input(
         "Zoek op personeelsnr, volledige naam of voertuig",
-        value=st.session_state.q,
         placeholder="Typ om te zoeken…",
-        key="q_input",
-    )
+    ).strip().lower()
 
-    suggestions = build_suggestions(df_view, q, limit=10)
-
-    # Dropdown met suggesties (bij typen)
-    sel = st.selectbox(
-        "Suggesties",
-        options=[""] + suggestions,
-        index=0,
-        help="Klik een suggestie om je zoekveld te vullen.",
-    )
-
-    if sel:
-        st.session_state.q = sel
-        st.rerun()
-    else:
-        st.session_state.q = q
-
-    q_norm = (st.session_state.q or "").strip().lower()
-
-    if q_norm:
-        hits = df_view[df_view["_search"].str.contains(re.escape(q_norm), na=False)].copy()
+    if q:
+        hits = df_view[df_view["_search"].str.contains(re.escape(q), na=False)].copy()
     else:
         hits = df_view.copy()
 
     st.caption(f"Records: {len(hits)} (jaarfilter: {year_choice})")
 
-    # Toon alleen jouw kolommen
-    hits_show = hits[REQUIRED_COLS].head(200).copy()
-
+    show = hits[REQUIRED_COLS].head(500).copy()
     st.data_editor(
-        hits_show,
+        show,
         use_container_width=True,
         hide_index=True,
-        column_config={
-            "Link": st.column_config.LinkColumn("Link"),
-        },
+        column_config={"Link": st.column_config.LinkColumn("Link")},
         disabled=True,
     )
 
-# Placeholders voor andere tabs (kan je later vullen)
-with tab_chauffeur:
-    st.info("Chauffeur: later uitwerken (filters/aggregaties op BRON).")
+elif page == "Chauffeur":
+    st.subheader("Chauffeur")
+    st.info("Later uitwerken (filters/aggregaties op BRON).")
 
-with tab_voertuig:
-    st.info("Voertuig: later uitwerken (top voertuigen, trends, …).")
+elif page == "Voertuig":
+    st.subheader("Voertuig")
+    st.info("Later uitwerken (top voertuigen, trends, …).")
 
-with tab_locatie:
-    st.info("Locatie: later uitwerken (top locaties, heatmap, …).")
+elif page == "Locatie":
+    st.subheader("Locatie")
+    st.info("Later uitwerken (top locaties, …).")
 
-with tab_coaching:
-    st.info("Coaching: later uitwerken (koppeling met Coachingslijst.xlsx en gesprekken).")
+elif page == "Coaching":
+    st.subheader("Coaching")
+    st.info("Later koppeling met Coachingslijst.xlsx / gesprekken.")
 
-with tab_analyse:
-    st.info("Analyse: later uitwerken (grafieken per maand, schade per type, …).")
+elif page == "Analyse":
+    st.subheader("Analyse")
+    st.info("Later: grafieken per maand, schade per type, …")
