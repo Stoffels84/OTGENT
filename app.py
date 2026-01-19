@@ -72,6 +72,22 @@ def parse_year(v) -> int | None:
         return None
 
 
+def format_ddmmyyyy(v) -> str:
+    """Toon altijd dd-mm-jjjj; tijd/uurnotatie verdwijnt."""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if not s:
+        return ""
+    try:
+        ts = pd.to_datetime(s, dayfirst=True, errors="coerce")
+        if pd.isna(ts):
+            return s
+        return ts.strftime("%d-%m-%Y")
+    except Exception:
+        return s
+
+
 def img_to_data_uri(path: Path) -> str:
     b = path.read_bytes()
     ext = path.suffix.lower().lstrip(".")
@@ -197,9 +213,7 @@ def load_gesprekken_df() -> pd.DataFrame:
     num_col = _find_col(df, "nummer")
     date_col = _find_col(df, "Datum")
     info_col = _find_col(df, "Info")
-
-    # ✅ neem Chauffeurnaam als naamveld
-    name_col = _find_col(df, "Chauffeurnaam")
+    name_col = _find_col(df, "Chauffeurnaam")  # ✅ naamveld
 
     if num_col is None:
         raise ValueError("Kolom 'nummer' (personeelsnr) niet gevonden in 'gesprekken per thema'.")
@@ -391,16 +405,20 @@ if page == "Dashboard":
         st.caption("Geen gesprekken gevonden voor deze zoekterm.")
     else:
         cols = ["nummer", "Chauffeurnaam", "Datum", "Info"]
+        display_gesprekken = gesprekken_hits[cols].copy()
+        display_gesprekken["Datum"] = display_gesprekken["Datum"].apply(format_ddmmyyyy)
+
+        # ✅ eerste 3 kolommen smaller, Info zo breed mogelijk
         st.data_editor(
-            gesprekken_hits[cols].head(300),
+            display_gesprekken.head(300),
             use_container_width=True,
             hide_index=True,
             disabled=True,
             column_config={
-                "Info": st.column_config.TextColumn("Info", width="large"),
-                "Datum": st.column_config.TextColumn("Datum", width="small"),
                 "nummer": st.column_config.TextColumn("nummer", width="small"),
-                "Chauffeurnaam": st.column_config.TextColumn("Chauffeurnaam", width="medium"),
+                "Chauffeurnaam": st.column_config.TextColumn("Chauffeurnaam", width="small"),
+                "Datum": st.column_config.TextColumn("Datum", width="small"),
+                "Info": st.column_config.TextColumn("Info", width="large"),
             },
         )
 
@@ -409,12 +427,23 @@ if page == "Dashboard":
         st.caption("Geen schadegevallen gevonden voor deze zoekterm.")
     else:
         show = schade_hits[SCHADE_COLS].head(500).copy()
+        show["Datum"] = show["Datum"].apply(format_ddmmyyyy)
+
         st.data_editor(
             show,
             use_container_width=True,
             hide_index=True,
             disabled=True,
-            column_config={"Link": st.column_config.LinkColumn("Link")},
+            column_config={
+                "personeelsnr": st.column_config.TextColumn("personeelsnr", width="small"),
+                "volledige naam": st.column_config.TextColumn("volledige naam", width="medium"),
+                "Datum": st.column_config.TextColumn("Datum", width="small"),
+                "Link": st.column_config.LinkColumn("Link", width="small"),
+                "Locatie": st.column_config.TextColumn("Locatie", width="medium"),
+                "voertuig": st.column_config.TextColumn("voertuig", width="medium"),
+                "bus/tram": st.column_config.TextColumn("bus/tram", width="small"),
+                "type": st.column_config.TextColumn("type", width="small"),
+            },
         )
 
 elif page == "Chauffeur":
