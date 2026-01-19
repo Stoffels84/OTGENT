@@ -10,7 +10,7 @@ import openpyxl
 
 APP_DIR = Path(__file__).parent
 XLSM_PATH = APP_DIR / "schade met macro.xlsm"
-GESPREKKEN_XLSX_PATH = APP_DIR / "overzicht gesprekken (aangepast).xlsx"
+GESPREKKEN_XLSX_PATH = APP_DIR / "Overzicht gesprekken (aangepast).xlsx"
 LOGO_PATH = APP_DIR / "logo.png"
 
 SCHADESHEET = "BRON"
