@@ -33,7 +33,6 @@ def norm(s) -> str:
 
 
 def clean_id(v) -> str:
-    """Maak nummers consistent: verwijder .0, trim spaties."""
     if v is None:
         return ""
     s = str(v).strip()
@@ -73,7 +72,6 @@ def parse_year(v) -> int | None:
 
 
 def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
-    """Case-insensitive kolomzoeker + tolerant voor varianten."""
     w = norm(wanted)
     for c in df.columns:
         if norm(c) == w:
@@ -84,21 +82,26 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
             for c in df.columns:
                 if norm(c) == alt:
                     return c
+
     if w == "datum":
         for alt in ["date", "datum gesprek", "gespreksdatum"]:
             for c in df.columns:
                 if norm(c) == alt:
                     return c
+
     if w == "info":
         for alt in ["informatie", "opmerking", "opmerkingen", "beschrijving", "details"]:
             for c in df.columns:
                 if norm(c) == alt:
                     return c
-    if w == "volledige naam":
-        for alt in ["naam", "medewerker", "werknemer", "chauffeur"]:
+
+    # ✅ jouw echte kolomnaam in gesprekken
+    if w in ["volledige naam", "chauffeurnaam"]:
+        for alt in ["chauffeurnaam", "chauffeur naam", "naam", "medewerker", "werknemer", "chauffeur"]:
             for c in df.columns:
                 if norm(c) == alt:
                     return c
+
     return None
 
 
@@ -186,7 +189,9 @@ def load_gesprekken_df() -> pd.DataFrame:
     num_col = _find_col(df, "nummer")
     date_col = _find_col(df, "Datum")
     info_col = _find_col(df, "Info")
-    name_col = _find_col(df, "volledige naam")  # optioneel
+
+    # ✅ neem Chauffeurnaam als naamveld
+    name_col = _find_col(df, "Chauffeurnaam")
 
     if num_col is None:
         raise ValueError("Kolom 'nummer' (personeelsnr) niet gevonden in 'gesprekken per thema'.")
@@ -197,24 +202,24 @@ def load_gesprekken_df() -> pd.DataFrame:
         df = df.rename(columns={date_col: "Datum"})
     if info_col and info_col != "Info":
         df = df.rename(columns={info_col: "Info"})
-    if name_col and name_col != "volledige naam":
-        df = df.rename(columns={name_col: "volledige naam"})
+    if name_col and name_col != "Chauffeurnaam":
+        df = df.rename(columns={name_col: "Chauffeurnaam"})
 
     if "Datum" not in df.columns:
         df["Datum"] = ""
     if "Info" not in df.columns:
         df["Info"] = ""
-    if "volledige naam" not in df.columns:
-        df["volledige naam"] = ""
+    if "Chauffeurnaam" not in df.columns:
+        df["Chauffeurnaam"] = ""
 
     df["nummer"] = df["nummer"].apply(clean_id)
     df["Datum"] = df["Datum"].apply(clean_text)
     df["Info"] = df["Info"].apply(clean_text)
-    df["volledige naam"] = df["volledige naam"].apply(clean_text)
+    df["Chauffeurnaam"] = df["Chauffeurnaam"].apply(clean_text)
 
     df["_search"] = (
         df["nummer"].fillna("").astype(str) + " " +
-        df["volledige naam"].fillna("").astype(str) + " " +
+        df["Chauffeurnaam"].fillna("").astype(str) + " " +
         df["Info"].fillna("").astype(str)
     ).str.lower()
 
@@ -293,7 +298,7 @@ try:
     df_gesprekken = load_gesprekken_df()
 except Exception as e:
     st.warning(f"Gesprekkenbestand niet geladen: {e}")
-    df_gesprekken = pd.DataFrame(columns=["nummer", "volledige naam", "Datum", "Info", "_search"])
+    df_gesprekken = pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search"])
 
 years = sorted([y for y in df_schade["_jaar"].dropna().unique().tolist() if y is not None], reverse=True)
 
@@ -341,7 +346,7 @@ if page == "Dashboard":
     st.subheader("Dashboard")
 
     q = st.text_input(
-        "Zoek op personeelsnr of naam (en voertuig in schade). In gesprekken zoekt hij op nummer/naam/info.",
+        "Zoek op personeelsnr of naam (en voertuig in schade). In gesprekken zoekt hij op nummer/chauffeurnaam/info.",
         placeholder="Typ om te zoeken…",
     ).strip().lower()
 
@@ -356,8 +361,7 @@ if page == "Dashboard":
     if len(gesprekken_hits) == 0:
         st.caption("Geen gesprekken gevonden voor deze zoekterm.")
     else:
-        cols = ["nummer", "volledige naam", "Datum", "Info"]
-        cols = [c for c in cols if c in gesprekken_hits.columns]
+        cols = ["nummer", "Chauffeurnaam", "Datum", "Info"]
         st.data_editor(
             gesprekken_hits[cols].head(300),
             use_container_width=True,
@@ -367,7 +371,7 @@ if page == "Dashboard":
                 "Info": st.column_config.TextColumn("Info", width="large"),
                 "Datum": st.column_config.TextColumn("Datum", width="small"),
                 "nummer": st.column_config.TextColumn("nummer", width="small"),
-                "volledige naam": st.column_config.TextColumn("volledige naam", width="medium"),
+                "Chauffeurnaam": st.column_config.TextColumn("Chauffeurnaam", width="medium"),
             },
         )
 
