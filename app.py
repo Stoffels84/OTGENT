@@ -10,10 +10,12 @@ import openpyxl
 
 APP_DIR = Path(__file__).parent
 XLSM_PATH = APP_DIR / "schade met macro.xlsm"
+GESPREKKEN_XLSX_PATH = APP_DIR / "overzicht gesprekken (aangepast).xlsx"
 LOGO_PATH = APP_DIR / "logo.png"
-SHEET_NAME = "BRON"
 
-REQUIRED_COLS = [
+SCHADESHEET = "BRON"
+
+SCHADE_COLS = [
     "personeelsnr",
     "volledige naam",
     "Datum",
@@ -23,6 +25,9 @@ REQUIRED_COLS = [
     "bus/tram",
     "type",
 ]
+
+# Voor gesprekken: we lezen alle kolommen, maar we moeten minstens deze 2 kunnen vinden
+GESPREK_KEY_COLS = ["personeelsnr", "volledige naam"]
 
 
 def norm(s) -> str:
@@ -53,18 +58,35 @@ def parse_year(v) -> int | None:
         return None
 
 
+def _find_col_case_insensitive(df: pd.DataFrame, wanted: str) -> str | None:
+    w = norm(wanted)
+    for c in df.columns:
+        if norm(c) == w:
+            return c
+    # tolerant voor varianten
+    if w == "personeelsnr":
+        for alt in ["personeelsnr.", "personeelsnummer", "persnr", "persnr."]:
+            for c in df.columns:
+                if norm(c) == alt:
+                    return c
+    if w == "volledige naam":
+        for alt in ["naam", "volledige naam.", "volledige_naam", "volledige naam "]:
+            for c in df.columns:
+                if norm(c) == alt:
+                    return c
+    return None
+
+
 @st.cache_data(show_spinner=False)
-def load_bron_df() -> pd.DataFrame:
+def load_schade_df() -> pd.DataFrame:
     if not XLSM_PATH.exists():
-        raise FileNotFoundError(
-            f"Bestand niet gevonden: {XLSM_PATH.name} (zet dit naast app.py)"
-        )
+        raise FileNotFoundError(f"Bestand niet gevonden: {XLSM_PATH.name} (zet dit naast app.py)")
 
     wb = openpyxl.load_workbook(XLSM_PATH, data_only=True, keep_vba=True)
-    if SHEET_NAME not in wb.sheetnames:
-        raise ValueError(f"Tabblad '{SHEET_NAME}' niet gevonden in {XLSM_PATH.name}")
+    if SCHADESHEET not in wb.sheetnames:
+        raise ValueError(f"Tabblad '{SCHADESHEET}' niet gevonden in {XLSM_PATH.name}")
 
-    ws = wb[SHEET_NAME]
+    ws = wb[SCHADESHEET]
 
     header = [c.value for c in ws[1]]
     header_map = {norm(h): idx for idx, h in enumerate(header)}
@@ -83,13 +105,13 @@ def load_bron_df() -> pd.DataFrame:
                     return header_map[alt]
         return None
 
-    idx_map = {c: find_idx(c) for c in REQUIRED_COLS}
+    idx_map = {c: find_idx(c) for c in SCHADE_COLS}
 
     rows = []
     for r in ws.iter_rows(min_row=2, values_only=True):
         obj = {}
         any_val = False
-        for col in REQUIRED_COLS:
+        for col in SCHADE_COLS:
             i = idx_map.get(col)
             val = r[i] if (i is not None and i < len(r)) else None
 
@@ -105,7 +127,7 @@ def load_bron_df() -> pd.DataFrame:
             rows.append(obj)
 
     df = pd.DataFrame(rows)
-    for c in REQUIRED_COLS:
+    for c in SCHADE_COLS:
         if c not in df.columns:
             df[c] = None
 
@@ -119,26 +141,60 @@ def load_bron_df() -> pd.DataFrame:
     return df
 
 
+@st.cache_data(show_spinner=False)
+def load_gesprekken_df() -> pd.DataFrame:
+    if not GESPREKKEN_XLSX_PATH.exists():
+        raise FileNotFoundError(f"Bestand niet gevonden: {GESPREKKEN_XLSX_PATH.name} (zet dit naast app.py)")
+
+    # Lees eerste sheet standaard
+    xls = pd.ExcelFile(GESPREKKEN_XLSX_PATH)
+    sheet = xls.sheet_names[0]
+    df = pd.read_excel(GESPREKKEN_XLSX_PATH, sheet_name=sheet)
+
+    # Vind de juiste kolommen (case-insensitive / tolerant)
+    pn_col = _find_col_case_insensitive(df, "personeelsnr")
+    nm_col = _find_col_case_insensitive(df, "volledige naam")
+
+    if pn_col is None and nm_col is None:
+        raise ValueError(
+            "In 'overzicht gesprekken (aangepast).xlsx' vind ik geen kolommen voor personeelsnr/naam. "
+            "Controleer de headernamen."
+        )
+
+    # Normaliseer naar vaste kolomnamen (zodat de rest van de code simpel blijft)
+    if pn_col is not None and pn_col != "personeelsnr":
+        df = df.rename(columns={pn_col: "personeelsnr"})
+    if nm_col is not None and nm_col != "volledige naam":
+        df = df.rename(columns={nm_col: "volledige naam"})
+
+    if "personeelsnr" not in df.columns:
+        df["personeelsnr"] = None
+    if "volledige naam" not in df.columns:
+        df["volledige naam"] = None
+
+    df["_search"] = (
+        df["personeelsnr"].fillna("").astype(str) + " " +
+        df["volledige naam"].fillna("").astype(str)
+    ).str.lower()
+
+    return df
+
+
 # ----------------------------
 # Streamlit page setup
 # ----------------------------
 st.set_page_config(page_title="Analyse en rapportering OT Gent", layout="wide")
 
-# Make a "top sidebar" (topbar) via CSS and a container
 st.markdown(
     """
     <style>
-      /* overall dark look */
       .stApp {
         background: radial-gradient(1200px 700px at 15% 5%, rgba(74,163,255,.10), transparent 60%),
                     radial-gradient(900px 600px at 90% 20%, rgba(120,80,255,.10), transparent 55%),
                     #0b0f14;
       }
-
-      /* hide default sidebar if you don't use it */
       section[data-testid="stSidebar"] { display: none; }
 
-      /* Topbar container styling */
       .ot-topbar {
         position: sticky;
         top: 0;
@@ -150,28 +206,16 @@ st.markdown(
         border-radius: 14px;
         margin-bottom: 14px;
       }
-
-      .ot-brand {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
+      .ot-brand { display: flex; align-items: center; gap: 10px; }
       .ot-logo {
-        width: 38px;
-        height: 38px;
-        object-fit: contain;
-        border-radius: 10px;
-        border: 1px solid rgba(255,255,255,.08);
-        background: rgba(255,255,255,.03);
-        padding: 6px;
+        width: 38px; height: 38px; object-fit: contain;
+        border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
+        background: rgba(255,255,255,.03); padding: 6px;
       }
       .ot-title { font-size: 16px; font-weight: 700; color: #e6edf3; line-height: 1.1; }
       .ot-sub   { font-size: 12px; color: #9aa4b2; margin-top: 2px; }
-
-      /* reduce padding around main block */
       .block-container { padding-top: 0.5rem; }
 
-      /* make radio look like pills */
       div[role="radiogroup"] > label {
         background: rgba(255,255,255,.02);
         border: 1px solid rgba(255,255,255,.08);
@@ -179,12 +223,7 @@ st.markdown(
         border-radius: 999px !important;
         margin-right: 8px !important;
       }
-      div[role="radiogroup"] > label:hover {
-        background: rgba(255,255,255,.05);
-      }
-
-      /* remove extra label spacing on inputs */
-      .stRadio > label, .stSelectbox > label, .stTextInput > label { font-weight: 600; }
+      div[role="radiogroup"] > label:hover { background: rgba(255,255,255,.05); }
     </style>
     """,
     unsafe_allow_html=True,
@@ -194,24 +233,28 @@ st.markdown(
 # Load data
 # ----------------------------
 try:
-    df = load_bron_df()
+    df_schade = load_schade_df()
 except Exception as e:
-    st.error(f"Kan data niet laden: {e}")
+    st.error(f"Kan schade-data niet laden: {e}")
     st.stop()
 
-years = sorted([y for y in df["_jaar"].dropna().unique().tolist() if y is not None], reverse=True)
+try:
+    df_gesprekken = load_gesprekken_df()
+except Exception as e:
+    st.warning(f"Gesprekkenbestand niet geladen: {e}")
+    df_gesprekken = pd.DataFrame(columns=["personeelsnr", "volledige naam", "_search"])
+
+years = sorted([y for y in df_schade["_jaar"].dropna().unique().tolist() if y is not None], reverse=True)
 
 # ----------------------------
-# Topbar UI (acts as "sidebar bovenaan")
+# Topbar ("sidebar bovenaan")
 # ----------------------------
 st.markdown('<div class="ot-topbar">', unsafe_allow_html=True)
 
 c1, c2, c3 = st.columns([2.4, 1.2, 3.2], vertical_alignment="center")
 
 with c1:
-    logo_html = ""
-    if LOGO_PATH.exists():
-        logo_html = f'<img class="ot-logo" src="logo.png" alt="Logo" />'
+    logo_html = f'<img class="ot-logo" src="logo.png" alt="Logo" />' if LOGO_PATH.exists() else ""
     st.markdown(
         f"""
         <div class="ot-brand">
@@ -238,11 +281,8 @@ with c3:
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# Apply year filter
-if year_choice != "Alle":
-    df_view = df[df["_jaar"] == int(year_choice)].copy()
-else:
-    df_view = df.copy()
+# Apply year filter on schade (gesprekken hebben geen Datum-filter tenzij jij dat later wil)
+df_schade_view = df_schade[df_schade["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_schade.copy()
 
 # ----------------------------
 # Pages
@@ -251,25 +291,45 @@ if page == "Dashboard":
     st.subheader("Dashboard")
 
     q = st.text_input(
-        "Zoek op personeelsnr, volledige naam of voertuig",
+        "Zoek op personeelsnr of volledige naam (en voertuig in schade)",
         placeholder="Typ om te zoeken…",
     ).strip().lower()
 
-    if q:
-        hits = df_view[df_view["_search"].str.contains(re.escape(q), na=False)].copy()
+    if not q:
+        st.caption("Typ iets in het zoekveld om resultaten te zien.")
+        st.stop()
+
+    # 1) Zoek in schade (personeelsnr/naam/voertuig)
+    schade_hits = df_schade_view[df_schade_view["_search"].str.contains(re.escape(q), na=False)].copy()
+
+    # 2) Zoek in gesprekken (personeelsnr/naam)
+    gesprekken_hits = df_gesprekken[df_gesprekken["_search"].str.contains(re.escape(q), na=False)].copy()
+
+    # Toon: gesprekken eerst (compact), dan schade (details)
+    st.markdown("#### Overzicht gesprekken")
+    if len(gesprekken_hits) == 0:
+        st.caption("Geen gesprekken gevonden voor deze zoekterm.")
     else:
-        hits = df_view.copy()
+        # toon alle originele kolommen behalve interne _search
+        cols = [c for c in gesprekken_hits.columns if c != "_search"]
+        st.dataframe(
+            gesprekken_hits[cols].head(200),
+            use_container_width=True,
+            hide_index=True,
+        )
 
-    st.caption(f"Records: {len(hits)} (jaarfilter: {year_choice})")
-
-    show = hits[REQUIRED_COLS].head(500).copy()
-    st.data_editor(
-        show,
-        use_container_width=True,
-        hide_index=True,
-        column_config={"Link": st.column_config.LinkColumn("Link")},
-        disabled=True,
-    )
+    st.markdown("#### Schade (BRON)")
+    if len(schade_hits) == 0:
+        st.caption("Geen schadegevallen gevonden voor deze zoekterm.")
+    else:
+        show = schade_hits[SCHADE_COLS].head(500).copy()
+        st.data_editor(
+            show,
+            use_container_width=True,
+            hide_index=True,
+            column_config={"Link": st.column_config.LinkColumn("Link")},
+            disabled=True,
+        )
 
 elif page == "Chauffeur":
     st.subheader("Chauffeur")
