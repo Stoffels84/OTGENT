@@ -73,12 +73,12 @@ def parse_year(v) -> int | None:
 
 
 def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
-    """Case-insensitive kolom-zoeker + tolerant voor kleine varianten."""
+    """Case-insensitive kolomzoeker + tolerant voor varianten."""
     w = norm(wanted)
     for c in df.columns:
         if norm(c) == w:
             return c
-    # eenvoudige toleranties
+
     if w == "nummer":
         for alt in ["nr", "id", "persnr", "personeelsnr", "personeelsnummer"]:
             for c in df.columns:
@@ -155,7 +155,6 @@ def load_schade_df() -> pd.DataFrame:
         if c not in df.columns:
             df[c] = None
 
-    # normalisatie
     df["personeelsnr"] = df["personeelsnr"].apply(clean_id)
     df["volledige naam"] = df["volledige naam"].apply(clean_text)
     df["voertuig"] = df["voertuig"].apply(clean_text)
@@ -182,7 +181,6 @@ def load_gesprekken_df() -> pd.DataFrame:
             f"Gevonden tabs: {xls.sheet_names}"
         )
 
-    # dtype=str om nummer netjes te houden
     df = pd.read_excel(GESPREKKEN_XLSX_PATH, sheet_name=GESPREKKEN_SHEET_NAME, dtype=str)
 
     num_col = _find_col(df, "nummer")
@@ -193,7 +191,6 @@ def load_gesprekken_df() -> pd.DataFrame:
     if num_col is None:
         raise ValueError("Kolom 'nummer' (personeelsnr) niet gevonden in 'gesprekken per thema'.")
 
-    # Normaliseer naar vaste kolomnamen
     if num_col != "nummer":
         df = df.rename(columns={num_col: "nummer"})
     if date_col and date_col != "Datum":
@@ -203,7 +200,6 @@ def load_gesprekken_df() -> pd.DataFrame:
     if name_col and name_col != "volledige naam":
         df = df.rename(columns={name_col: "volledige naam"})
 
-    # Zorg dat kolommen bestaan
     if "Datum" not in df.columns:
         df["Datum"] = ""
     if "Info" not in df.columns:
@@ -211,14 +207,10 @@ def load_gesprekken_df() -> pd.DataFrame:
     if "volledige naam" not in df.columns:
         df["volledige naam"] = ""
 
-    # Normaliseer velden
     df["nummer"] = df["nummer"].apply(clean_id)
     df["Datum"] = df["Datum"].apply(clean_text)
     df["Info"] = df["Info"].apply(clean_text)
     df["volledige naam"] = df["volledige naam"].apply(clean_text)
-
-    # Voor uniform zoeken op personeelsnr gebruiken we ook een alias-kolom
-    df["personeelsnr"] = df["nummer"]
 
     df["_search"] = (
         df["nummer"].fillna("").astype(str) + " " +
@@ -226,14 +218,11 @@ def load_gesprekken_df() -> pd.DataFrame:
         df["Info"].fillna("").astype(str)
     ).str.lower()
 
-    # Optioneel: jaar uit gesprekken Datum (als je later ook filter wil)
-    df["_jaar"] = df["Datum"].apply(parse_year)
-
     return df
 
 
 # ----------------------------
-# Streamlit page setup
+# Streamlit setup
 # ----------------------------
 st.set_page_config(page_title="Analyse en rapportering OT Gent", layout="wide")
 
@@ -276,6 +265,16 @@ st.markdown(
         margin-right: 8px !important;
       }
       div[role="radiogroup"] > label:hover { background: rgba(255,255,255,.05); }
+
+      /* ✅ Tekstterugloop in data_editor/dataframe cellen */
+      div[data-testid="stDataFrame"] div[role="gridcell"]{
+        white-space: normal !important;
+        line-height: 1.35 !important;
+        overflow-wrap: anywhere !important;
+      }
+      div[data-testid="stDataFrame"] div[role="row"]{
+        height: auto !important;
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -294,12 +293,12 @@ try:
     df_gesprekken = load_gesprekken_df()
 except Exception as e:
     st.warning(f"Gesprekkenbestand niet geladen: {e}")
-    df_gesprekken = pd.DataFrame(columns=["nummer", "Datum", "Info", "volledige naam", "_search"])
+    df_gesprekken = pd.DataFrame(columns=["nummer", "volledige naam", "Datum", "Info", "_search"])
 
 years = sorted([y for y in df_schade["_jaar"].dropna().unique().tolist() if y is not None], reverse=True)
 
 # ----------------------------
-# Topbar ("sidebar bovenaan")
+# Topbar
 # ----------------------------
 st.markdown('<div class="ot-topbar">', unsafe_allow_html=True)
 
@@ -350,23 +349,26 @@ if page == "Dashboard":
         st.caption("Typ iets in het zoekveld om resultaten te zien.")
         st.stop()
 
-    # Schade: personeelsnr + naam + voertuig
     schade_hits = df_schade_view[df_schade_view["_search"].str.contains(re.escape(q), na=False)].copy()
-
-    # Gesprekken: nummer + (optioneel) naam + info
     gesprekken_hits = df_gesprekken[df_gesprekken["_search"].str.contains(re.escape(q), na=False)].copy()
 
     st.markdown("#### Overzicht gesprekken (gesprekken per thema)")
     if len(gesprekken_hits) == 0:
         st.caption("Geen gesprekken gevonden voor deze zoekterm.")
     else:
-        # toon compact: nummer, Datum, Info (+ naam als bestaat)
         cols = ["nummer", "volledige naam", "Datum", "Info"]
         cols = [c for c in cols if c in gesprekken_hits.columns]
-        st.dataframe(
+        st.data_editor(
             gesprekken_hits[cols].head(300),
             use_container_width=True,
             hide_index=True,
+            disabled=True,
+            column_config={
+                "Info": st.column_config.TextColumn("Info", width="large"),
+                "Datum": st.column_config.TextColumn("Datum", width="small"),
+                "nummer": st.column_config.TextColumn("nummer", width="small"),
+                "volledige naam": st.column_config.TextColumn("volledige naam", width="medium"),
+            },
         )
 
     st.markdown("#### Schade (BRON)")
@@ -378,8 +380,8 @@ if page == "Dashboard":
             show,
             use_container_width=True,
             hide_index=True,
-            column_config={"Link": st.column_config.LinkColumn("Link")},
             disabled=True,
+            column_config={"Link": st.column_config.LinkColumn("Link")},
         )
 
 elif page == "Chauffeur":
