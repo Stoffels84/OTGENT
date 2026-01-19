@@ -11,6 +11,7 @@ import openpyxl
 APP_DIR = Path(__file__).parent
 XLSM_PATH = APP_DIR / "schade met macro.xlsm"
 GESPREKKEN_XLSX_PATH = APP_DIR / "Overzicht gesprekken (aangepast).xlsx"
+GESPREKKEN_SHEET_NAME = "gesprekken per thema"
 LOGO_PATH = APP_DIR / "logo.png"
 
 SCHADESHEET = "BRON"
@@ -29,6 +30,23 @@ SCHADE_COLS = [
 
 def norm(s) -> str:
     return str(s).strip().lower()
+
+
+def clean_id(v) -> str:
+    """Maak personeelsnr consistent: behoud leading zeros, verwijder .0, trim spaties."""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if not s:
+        return ""
+    # Excel leest soms nummers als float-string: "12345.0"
+    if re.fullmatch(r"\d+\.0", s):
+        s = s[:-2]
+    return s.strip()
+
+
+def clean_text(v) -> str:
+    return "" if v is None else str(v).strip()
 
 
 def parse_year(v) -> int | None:
@@ -60,16 +78,19 @@ def _find_col_case_insensitive(df: pd.DataFrame, wanted: str) -> str | None:
     for c in df.columns:
         if norm(c) == w:
             return c
+
     if w == "personeelsnr":
-        for alt in ["personeelsnr.", "personeelsnummer", "persnr", "persnr."]:
+        for alt in ["personeelsnummer", "persnr", "persnr.", "personeelsnr."]:
             for c in df.columns:
                 if norm(c) == alt:
                     return c
+
     if w == "volledige naam":
         for alt in ["naam", "volledige naam.", "volledige_naam", "volledige naam "]:
             for c in df.columns:
                 if norm(c) == alt:
                     return c
+
     return None
 
 
@@ -106,6 +127,7 @@ def load_schade_df() -> pd.DataFrame:
     for r in ws.iter_rows(min_row=2, values_only=True):
         obj = {}
         any_val = False
+
         for col in SCHADE_COLS:
             i = idx_map.get(col)
             val = r[i] if (i is not None and i < len(r)) else None
@@ -126,6 +148,11 @@ def load_schade_df() -> pd.DataFrame:
         if c not in df.columns:
             df[c] = None
 
+    # normalisatie
+    df["personeelsnr"] = df["personeelsnr"].apply(clean_id)
+    df["volledige naam"] = df["volledige naam"].apply(clean_text)
+    df["voertuig"] = df["voertuig"].apply(clean_text)
+
     df["_jaar"] = df["Datum"].apply(parse_year)
     df["_search"] = (
         df["personeelsnr"].fillna("").astype(str) + " " +
@@ -142,15 +169,23 @@ def load_gesprekken_df() -> pd.DataFrame:
         raise FileNotFoundError(f"Bestand niet gevonden: {GESPREKKEN_XLSX_PATH.name} (zet dit naast app.py)")
 
     xls = pd.ExcelFile(GESPREKKEN_XLSX_PATH)
-    sheet = xls.sheet_names[0]
-    df = pd.read_excel(GESPREKKEN_XLSX_PATH, sheet_name=sheet)
+
+    if GESPREKKEN_SHEET_NAME not in xls.sheet_names:
+        raise ValueError(
+            f"Tabblad '{GESPREKKEN_SHEET_NAME}' niet gevonden in {GESPREKKEN_XLSX_PATH.name}. "
+            f"Gevonden tabs: {xls.sheet_names}"
+        )
+
+    # dtype=str => voorkomt dat personeelsnr als float (12345.0) binnenkomt
+    df = pd.read_excel(GESPREKKEN_XLSX_PATH, sheet_name=GESPREKKEN_SHEET_NAME, dtype=str)
 
     pn_col = _find_col_case_insensitive(df, "personeelsnr")
     nm_col = _find_col_case_insensitive(df, "volledige naam")
 
     if pn_col is None and nm_col is None:
         raise ValueError(
-            "In 'Overzicht gesprekken (aangepast).xlsx' vind ik geen kolommen voor personeelsnr/naam."
+            "In 'gesprekken per thema' vind ik geen kolommen voor personeelsnr/naam. "
+            "Controleer de kolomnamen."
         )
 
     if pn_col is not None and pn_col != "personeelsnr":
@@ -159,9 +194,13 @@ def load_gesprekken_df() -> pd.DataFrame:
         df = df.rename(columns={nm_col: "volledige naam"})
 
     if "personeelsnr" not in df.columns:
-        df["personeelsnr"] = None
+        df["personeelsnr"] = ""
     if "volledige naam" not in df.columns:
-        df["volledige naam"] = None
+        df["volledige naam"] = ""
+
+    # normalisatie
+    df["personeelsnr"] = df["personeelsnr"].apply(clean_id)
+    df["volledige naam"] = df["volledige naam"].apply(clean_text)
 
     df["_search"] = (
         df["personeelsnr"].fillna("").astype(str) + " " +
@@ -292,7 +331,7 @@ if page == "Dashboard":
     schade_hits = df_schade_view[df_schade_view["_search"].str.contains(re.escape(q), na=False)].copy()
     gesprekken_hits = df_gesprekken[df_gesprekken["_search"].str.contains(re.escape(q), na=False)].copy()
 
-    st.markdown("#### Overzicht gesprekken")
+    st.markdown("#### Overzicht gesprekken (gesprekken per thema)")
     if len(gesprekken_hits) == 0:
         st.caption("Geen gesprekken gevonden voor deze zoekterm.")
     else:
