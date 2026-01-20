@@ -1,6 +1,7 @@
 # app.py
 import re
 import base64
+import html
 import datetime as dt
 from pathlib import Path
 
@@ -119,7 +120,6 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
                 if norm(c) == alt:
                     return c
 
-    # ✅ jouw echte kolomnaam in gesprekken
     if w in ["volledige naam", "chauffeurnaam"]:
         for alt in ["chauffeurnaam", "chauffeur naam", "naam", "medewerker", "werknemer", "chauffeur"]:
             for c in df.columns:
@@ -127,6 +127,52 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
                     return c
 
     return None
+
+
+def render_html_table(
+    df: pd.DataFrame,
+    col_order: list[str],
+    col_widths: dict[str, str],
+    max_height_px: int = 520,
+) -> None:
+    """
+    Render een HTML-tabel met echte tekstterugloop + automatische rijhoogte.
+    Dit omzeilt de Streamlit 'virtualized grid' beperking.
+    """
+    # Alleen gevraagde kolommen, en veilig casten naar string
+    view = df[col_order].copy()
+    for c in col_order:
+        view[c] = view[c].fillna("").astype(str)
+
+    # Header
+    ths = []
+    for c in col_order:
+        w = col_widths.get(c, "auto")
+        ths.append(f'<th style="width:{w}">{html.escape(c)}</th>')
+    thead = "<tr>" + "".join(ths) + "</tr>"
+
+    # Body
+    trs = []
+    for _, row in view.iterrows():
+        tds = []
+        for c in col_order:
+            cell = row[c]
+            # Convert linebreaks netjes
+            safe = html.escape(cell).replace("\n", "<br/>")
+            tds.append(f"<td>{safe}</td>")
+        trs.append("<tr>" + "".join(tds) + "</tr>")
+    tbody = "".join(trs)
+
+    table_html = f"""
+    <div class="ot-table-wrap" style="max-height:{max_height_px}px;">
+      <table class="ot-table">
+        <thead>{thead}</thead>
+        <tbody>{tbody}</tbody>
+      </table>
+    </div>
+    """
+
+    st.markdown(table_html, unsafe_allow_html=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -213,7 +259,7 @@ def load_gesprekken_df() -> pd.DataFrame:
     num_col = _find_col(df, "nummer")
     date_col = _find_col(df, "Datum")
     info_col = _find_col(df, "Info")
-    name_col = _find_col(df, "Chauffeurnaam")  # ✅ naamveld
+    name_col = _find_col(df, "Chauffeurnaam")
 
     if num_col is None:
         raise ValueError("Kolom 'nummer' (personeelsnr) niet gevonden in 'gesprekken per thema'.")
@@ -245,7 +291,6 @@ def load_gesprekken_df() -> pd.DataFrame:
         df["Info"].fillna("").astype(str)
     ).str.lower()
 
-    # ✅ jaar voor gesprekken (nodig voor jaarfilter)
     df["_jaar"] = df["Datum"].apply(parse_year)
 
     return df
@@ -296,26 +341,41 @@ st.markdown(
       }
       div[role="radiogroup"] > label:hover { background: rgba(255,255,255,.05); }
 
-      /* ✅ Tekstterugloop in zowel dataframe als data_editor */
-      div[data-testid="stDataFrame"] div[role="gridcell"],
-      div[data-testid="stDataEditor"] div[role="gridcell"]{
-        white-space: normal !important;
-        line-height: 1.35 !important;
-        overflow-wrap: anywhere !important;
-        word-break: break-word !important;
-        align-items: flex-start !important;
+      /* ---- HTML tabel (gesprekken) ---- */
+      .ot-table-wrap{
+        overflow: auto;
+        border: 1px solid rgba(255,255,255,.08);
+        border-radius: 12px;
+        background: rgba(255,255,255,.02);
       }
-
-      /* ✅ Rijhoogte automatisch laten meegroeien */
-      div[data-testid="stDataFrame"] div[role="row"],
-      div[data-testid="stDataEditor"] div[role="row"]{
-        height: auto !important;
+      table.ot-table{
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed; /* belangrijk voor vaste kolombreedtes */
       }
-
-      /* ✅ Zorg dat cellen bovenaan starten */
-      div[data-testid="stDataFrame"] div[role="gridcell"] > div,
-      div[data-testid="stDataEditor"] div[role="gridcell"] > div{
-        align-items: flex-start !important;
+      table.ot-table thead th{
+        position: sticky;
+        top: 0;
+        background: rgba(15, 22, 33, .92);
+        color: #cbd5e1;
+        text-align: left;
+        font-weight: 600;
+        font-size: 13px;
+        padding: 10px 10px;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+      }
+      table.ot-table td{
+        color: #e6edf3;
+        font-size: 13px;
+        padding: 10px 10px;
+        vertical-align: top;
+        border-bottom: 1px solid rgba(255,255,255,.06);
+        white-space: normal;         /* wrap */
+        overflow-wrap: anywhere;     /* wrap */
+        word-break: break-word;      /* wrap */
+      }
+      table.ot-table tr:last-child td{
+        border-bottom: none;
       }
     </style>
     """,
@@ -337,7 +397,6 @@ except Exception as e:
     st.warning(f"Gesprekkenbestand niet geladen: {e}")
     df_gesprekken = pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search", "_jaar"])
 
-# ✅ Jaarlijst uit BOTH schade en gesprekken
 years_schade = df_schade["_jaar"].dropna().unique().tolist() if "_jaar" in df_schade.columns else []
 years_gespr = df_gesprekken["_jaar"].dropna().unique().tolist() if "_jaar" in df_gesprekken.columns else []
 years = sorted({int(y) for y in (years_schade + years_gespr) if y is not None}, reverse=True)
@@ -381,7 +440,6 @@ with c3:
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ✅ Views (jaarfilter op BEIDE)
 df_schade_view = (
     df_schade[df_schade["_jaar"] == int(year_choice)].copy()
     if year_choice != "Alle"
@@ -420,17 +478,17 @@ if page == "Dashboard":
         display_gesprekken = gesprekken_hits[cols].copy()
         display_gesprekken["Datum"] = display_gesprekken["Datum"].apply(format_ddmmyyyy)
 
-        # ✅ Gebruik st.dataframe voor betere wrap/rijhoogte (read-only)
-        st.dataframe(
+        # ✅ HTML-tabel: eerste 3 kolommen smal, Info krijgt de rest + wrap + volledige rijhoogte
+        render_html_table(
             display_gesprekken.head(300),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "nummer": st.column_config.TextColumn("nummer", width="small"),
-                "Chauffeurnaam": st.column_config.TextColumn("Chauffeurnaam", width="small"),
-                "Datum": st.column_config.TextColumn("Datum", width="small"),
-                "Info": st.column_config.TextColumn("Info", width="large"),
+            col_order=["nummer", "Chauffeurnaam", "Datum", "Info"],
+            col_widths={
+                "nummer": "90px",
+                "Chauffeurnaam": "180px",
+                "Datum": "120px",
+                "Info": "auto",
             },
+            max_height_px=520,
         )
 
     st.markdown("#### Schade (BRON)")
@@ -440,7 +498,7 @@ if page == "Dashboard":
         show = schade_hits[SCHADE_COLS].head(500).copy()
         show["Datum"] = show["Datum"].apply(format_ddmmyyyy)
 
-        # ✅ Ook schade read-only tonen met dataframe (wrap)
+        # Schade kan gerust via dataframe (meestal minder lange tekst in 1 kolom)
         st.dataframe(
             show,
             use_container_width=True,
