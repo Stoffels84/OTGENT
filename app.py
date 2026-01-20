@@ -1421,11 +1421,179 @@ elif current_page == "locatie":
         column_config=column_config if column_config else None,
     )
 
+elif current_page == "analyse":
+    st.subheader("Analyse")
 
+    if df_schade_view.empty:
+        st.info("Geen schadegegevens beschikbaar voor deze selectie.")
+        st.stop()
+
+    # ----------------------------
+    # Helpers
+    # ----------------------------
+    def to_dt(v):
+        return pd.to_datetime(v, dayfirst=True, errors="coerce")
+
+    tmp = df_schade_view.copy()
+    tmp["_dt"] = tmp["Datum"].apply(to_dt)
+    tmp = tmp.dropna(subset=["_dt"])
+
+    if tmp.empty:
+        st.warning("Geen geldige datums gevonden om analyse te maken.")
+        st.stop()
+
+    # Normaliseer kernkolommen
+    for c in ["type", "Locatie", "voertuig", "teamcoach"]:
+        if c in tmp.columns:
+            tmp[c] = (
+                tmp[c]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .replace("", "(onbekend)")
+            )
+
+    # ----------------------------
+    # 1) Evolutie doorheen de tijd
+    # ----------------------------
+    st.markdown("## 📈 Evolutie doorheen de tijd")
+
+    granularity = st.selectbox("Groeperen per", ["Maand", "Kwartaal"], index=0)
+
+    if granularity == "Maand":
+        tmp["Periode"] = tmp["_dt"].dt.to_period("M").astype(str)
+    else:
+        tmp["Periode"] = tmp["_dt"].dt.to_period("Q").astype(str)
+
+    evolutie = (
+        tmp.groupby("Periode")
+        .size()
+        .reset_index(name="Aantal schadegevallen")
+        .sort_values("Periode")
+    )
+
+    c1, c2 = st.columns([1.1, 1.0])
+    with c1:
+        st.dataframe(evolutie, use_container_width=True, hide_index=True)
+    with c2:
+        st.bar_chart(evolutie.set_index("Periode")["Aantal schadegevallen"])
+
+    st.divider()
+
+    # ----------------------------
+    # 2) Verdeling per type
+    # ----------------------------
+    st.markdown("## 🧩 Verdeling per type")
+
+    per_type = (
+        tmp.groupby("type")
+        .size()
+        .reset_index(name="Aantal")
+        .sort_values("Aantal", ascending=False)
+    )
+    total = per_type["Aantal"].sum()
+    per_type["Aandeel (%)"] = (per_type["Aantal"] / total * 100).round(1)
+
+    st.dataframe(
+        per_type.head(10),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Aandeel (%)": st.column_config.NumberColumn("Aandeel (%)", format="%.1f"),
+        },
+    )
+
+    st.bar_chart(per_type.head(10).set_index("type")["Aantal"])
+
+    st.divider()
+
+    # ----------------------------
+    # 3) Hotspot-combinaties
+    # ----------------------------
+    st.markdown("## 🔥 Hotspot-combinaties")
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.markdown("### Locatie × Type")
+        loc_type = (
+            tmp.groupby(["Locatie", "type"])
+            .size()
+            .reset_index(name="Aantal")
+            .sort_values("Aantal", ascending=False)
+            .head(10)
+        )
+        st.dataframe(loc_type, use_container_width=True, hide_index=True)
+
+    with c2:
+        st.markdown("### Voertuig × Type")
+        veh_type = (
+            tmp.groupby(["voertuig", "type"])
+            .size()
+            .reset_index(name="Aantal")
+            .sort_values("Aantal", ascending=False)
+            .head(10)
+        )
+        st.dataframe(veh_type, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ----------------------------
+    # 4) Recente signalen – laatste 6 maanden
+    # ----------------------------
+    st.markdown("## 🚨 Recente signalen (laatste 6 maanden)")
+
+    max_dt = tmp["_dt"].max()
+    cutoff = max_dt - pd.DateOffset(months=6)
+
+    recent = tmp[tmp["_dt"] >= cutoff].copy()
+
+    if recent.empty:
+        st.caption("Geen schadegevallen in de laatste 6 maanden.")
+        st.stop()
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.markdown("### Locaties")
+        recent_loc = (
+            recent.groupby("Locatie")
+            .size()
+            .reset_index(name="Aantal")
+            .sort_values("Aantal", ascending=False)
+            .head(10)
+        )
+        st.dataframe(recent_loc, use_container_width=True, hide_index=True)
+
+    with c2:
+        st.markdown("### Voertuigen")
+        recent_veh = (
+            recent.groupby("voertuig")
+            .size()
+            .reset_index(name="Aantal")
+            .sort_values("Aantal", ascending=False)
+            .head(10)
+        )
+        st.dataframe(recent_veh, use_container_width=True, hide_index=True)
+
+    with c3:
+        st.markdown("### Types")
+        recent_type = (
+            recent.groupby("type")
+            .size()
+            .reset_index(name="Aantal")
+            .sort_values("Aantal", ascending=False)
+            .head(10)
+        )
+        st.dataframe(recent_type, use_container_width=True, hide_index=True)
+
+    st.caption(
+        f"Analyseperiode: {cutoff.strftime('%d-%m-%Y')} → {max_dt.strftime('%d-%m-%Y')}"
+    )
+
+
+            
 elif current_page == "coaching":
     st.subheader("Coaching")
     st.info("Later uitwerken (filters/aggregaties op coaching + koppeling).")
 
-elif current_page == "analyse":
-    st.subheader("Analyse")
-    st.info("Later: grafieken per maand, schade per type, …")
