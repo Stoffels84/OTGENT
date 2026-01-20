@@ -9,6 +9,107 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import openpyxl
+import bcrypt
+
+TOEGESTAAN_XLSX_PATH = APP_DIR / "toegestaan_gebruik.xlsx"
+
+@st.cache_data(show_spinner=False)
+def load_users_df() -> pd.DataFrame:
+    if not TOEGESTAAN_XLSX_PATH.exists():
+        raise FileNotFoundError(f"Bestand niet gevonden: {TOEGESTAAN_XLSX_PATH.name}")
+
+    df = pd.read_excel(TOEGESTAAN_XLSX_PATH, dtype=str).fillna("")
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    # Verwacht: naam, rol, paswoord_hash (aanrader)
+    if "naam" not in df.columns or "rol" not in df.columns:
+        raise ValueError("Kolommen 'naam' en 'rol' zijn verplicht in toegestaan_gebruik.xlsx")
+
+    # Ondersteun beide: paswoord_hash (aanrader) of paswoord (fallback)
+    if "paswoord_hash" not in df.columns and "paswoord" not in df.columns:
+        raise ValueError("Voor login heb je 'paswoord_hash' (aanrader) of 'paswoord' nodig.")
+
+    df["naam"] = df["naam"].astype(str).str.strip()
+    df["rol"] = df["rol"].astype(str).str.strip().str.lower()
+
+    if "paswoord_hash" in df.columns:
+        df["paswoord_hash"] = df["paswoord_hash"].astype(str).str.strip()
+    if "paswoord" in df.columns:
+        df["paswoord"] = df["paswoord"].astype(str).str.strip()
+
+    # Uniek per naam
+    df = df[df["naam"] != ""].copy()
+    df = df.drop_duplicates(subset=["naam"], keep="last")
+
+    return df
+
+
+def verify_password(entered: str, row: pd.Series) -> bool:
+    entered = (entered or "").strip()
+    if not entered:
+        return False
+
+    # Aanrader: bcrypt hash check
+    if "paswoord_hash" in row and str(row["paswoord_hash"]).strip():
+        try:
+            return bcrypt.checkpw(entered.encode("utf-8"), row["paswoord_hash"].encode("utf-8"))
+        except Exception:
+            return False
+
+    # Fallback (niet ideaal): plain text vergelijken
+    if "paswoord" in row and str(row["paswoord"]).strip():
+        return entered == str(row["paswoord"]).strip()
+
+    return False
+
+
+def require_login() -> None:
+    if st.session_state.get("auth_ok"):
+        return
+
+    st.title("🔐 Inloggen")
+    st.caption("Toegang is beveiligd. Meld aan om verder te gaan.")
+
+    users = load_users_df()
+
+    naam = st.text_input("Naam", placeholder="bv. janssens", key="login_naam")
+    pw = st.text_input("Paswoord", type="password", key="login_pw")
+
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        do_login = st.button("Inloggen", use_container_width=True)
+
+    if do_login:
+        naam_clean = (naam or "").strip()
+        match = users[users["naam"] == naam_clean]
+
+        if match.empty:
+            st.error("Onbekende gebruiker.")
+            st.stop()
+
+        row = match.iloc[0]
+        if verify_password(pw, row):
+            st.session_state["auth_ok"] = True
+            st.session_state["user_naam"] = row["naam"]
+            st.session_state["user_rol"] = row.get("rol", "viewer")
+            st.success("Ingelogd.")
+            st.rerun()
+        else:
+            st.error("Onjuist paswoord.")
+            st.stop()
+
+    st.stop()
+
+
+def logout_button() -> None:
+    with st.sidebar:
+        st.markdown("---")
+        st.write(f"👤 **{st.session_state.get('user_naam','')}**")
+        st.write(f"🔑 Rol: **{st.session_state.get('user_rol','')}**")
+        if st.button("Uitloggen"):
+            for k in ["auth_ok", "user_naam", "user_rol"]:
+                st.session_state.pop(k, None)
+            st.rerun()
 
 
 # ----------------------------
@@ -629,6 +730,16 @@ def load_personeelsfiche_df() -> pd.DataFrame:
 # ----------------------------
 st.set_page_config(page_title="Analyse en rapportering OT Gent", layout="wide")
 load_css(CSS_PATH)
+
+st.set_page_config(page_title="Analyse en rapportering OT Gent", layout="wide")
+load_css(CSS_PATH)
+
+require_login()
+logout_button()
+
+# daarna pas:
+# df_schade = load_schade_df()
+# ...
 
 
 # ----------------------------
