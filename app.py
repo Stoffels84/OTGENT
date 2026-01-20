@@ -924,7 +924,7 @@ if current_page == "dashboard":
         )
 
     # Geplande coaching
-    st.markdown("#### Geplande coaching (Coachingslijst.xlsx → tabblad 'Coaching')")
+    st.markdown("#### Geplande coaching")
     if len(coach_tab_hits) == 0:
         st.caption("Geen geplande coaching-info gevonden voor deze zoekterm.")
     else:
@@ -937,7 +937,7 @@ if current_page == "dashboard":
         )
 
     # Voltooide coaching
-    st.markdown("#### Voltooide coaching (Coachingslijst.xlsx → tabblad 'Voltooide coachings')")
+    st.markdown("#### Voltooide coaching")
     if len(coach_volt_hits) == 0:
         st.caption("Geen voltooide coachings gevonden voor deze zoekterm.")
     else:
@@ -951,7 +951,7 @@ if current_page == "dashboard":
         )
 
     # Overzicht gesprekken
-    st.markdown("#### Overzicht gesprekken (gesprekken per thema)")
+    st.markdown("#### Overzicht gesprekken")
     if len(gesprekken_hits) == 0:
         st.caption("Geen gesprekken gevonden voor deze zoekterm.")
     else:
