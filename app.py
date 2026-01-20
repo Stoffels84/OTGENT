@@ -885,9 +885,7 @@ elif current_page == "chauffeur":
         },
     )
 
-    if len(top_chauffeurs_filtered) > 0:
-        st.bar_chart(top_chauffeurs_filtered.set_index("volledige naam")["Aantal schadegevallen"])
-    else:
+    if len(top_chauffeurs_filtered) == 0:
         st.caption("Geen chauffeurs binnen deze filters.")
 
     # ---- Teamcoach ----
@@ -908,17 +906,25 @@ elif current_page == "chauffeur":
     )
 
     st.dataframe(
-        schade_per_teamcoach,
+        schade_per_teamcoach.rename(columns={"Aantal schadegevallen": "Aantal"}),
         use_container_width=True,
         hide_index=True,
         column_config={
             "teamcoach": st.column_config.TextColumn("Teamcoach", width="medium"),
-            "Aantal schadegevallen": st.column_config.NumberColumn("Aantal", width="small"),
+            "Aantal": st.column_config.NumberColumn("Aantal", width="small"),
         },
     )
 
-    if len(schade_per_teamcoach) > 0:
-        st.bar_chart(schade_per_teamcoach.set_index("teamcoach")["Aantal schadegevallen"])
+    # Sorted bar chart (hoog -> laag)
+    schade_per_teamcoach_sorted = (
+        schade_per_teamcoach
+        .sort_values("Aantal schadegevallen", ascending=False)
+        .set_index("teamcoach")
+    )
+
+    st.bar_chart(
+        schade_per_teamcoach_sorted["Aantal schadegevallen"]
+    )
 
 elif current_page == "voertuig":
     st.subheader("Voertuig")
