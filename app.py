@@ -1,5 +1,6 @@
 # app.py
 import re
+import json
 import base64
 import html
 import datetime as dt
@@ -14,6 +15,7 @@ APP_DIR = Path(__file__).parent
 XLSM_PATH = APP_DIR / "schade met macro.xlsm"
 GESPREKKEN_XLSX_PATH = APP_DIR / "Overzicht gesprekken (aangepast).xlsx"
 GESPREKKEN_SHEET_NAME = "gesprekken per thema"
+PERSONEEL_JSON_PATH = APP_DIR / "personeelsficheGB.json"
 LOGO_PATH = APP_DIR / "logo.png"
 
 SCHADESHEET = "BRON"
@@ -102,8 +104,8 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
         if norm(c) == w:
             return c
 
-    if w == "nummer":
-        for alt in ["nr", "id", "persnr", "personeelsnr", "personeelsnummer"]:
+    if w in ["nummer", "personeelsnr", "personeelsnummer"]:
+        for alt in ["nr", "id", "persnr", "personeelsnr", "personeelsnummer", "nummer", "employeeid", "employee_id"]:
             for c in df.columns:
                 if norm(c) == alt:
                     return c
@@ -120,13 +122,52 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
                 if norm(c) == alt:
                     return c
 
-    if w in ["volledige naam", "chauffeurnaam"]:
-        for alt in ["chauffeurnaam", "chauffeur naam", "naam", "medewerker", "werknemer", "chauffeur"]:
+    if w in ["volledige naam", "chauffeurnaam", "naam"]:
+        for alt in [
+            "chauffeurnaam", "chauffeur naam", "naam", "medewerker", "werknemer", "chauffeur",
+            "volledige naam", "full name", "fullname", "displayname", "display_name"
+        ]:
             for c in df.columns:
-                if norm(c) == alt:
+                if norm(c) == norm(alt):
                     return c
 
     return None
+
+
+def _flatten_json_to_records(data):
+    """
+    Probeert eender welke JSON-structuur om te zetten naar een lijst van dict-records.
+    - lijst[dict] => ok
+    - dict met values dict => records met _key
+    - dict met key data/items => recurse
+    - dict (single) => 1 record
+    """
+    if data is None:
+        return []
+
+    if isinstance(data, list):
+        # filter enkel dicts
+        return [x for x in data if isinstance(x, dict)]
+
+    if isinstance(data, dict):
+        # vaak: {"data":[...]} of {"items":[...]}
+        for k in ["data", "items", "results", "records"]:
+            if k in data:
+                return _flatten_json_to_records(data[k])
+
+        # dict mapping id -> dict
+        if data and all(isinstance(v, dict) for v in data.values()):
+            out = []
+            for key, val in data.items():
+                rec = dict(val)
+                rec["_key"] = str(key)
+                out.append(rec)
+            return out
+
+        # single record
+        return [data]
+
+    return []
 
 
 def render_html_table(
@@ -135,29 +176,21 @@ def render_html_table(
     col_widths: dict[str, str],
     max_height_px: int = 520,
 ) -> None:
-    """
-    Render een HTML-tabel met echte tekstterugloop + automatische rijhoogte.
-    Dit omzeilt de Streamlit 'virtualized grid' beperking.
-    """
-    # Alleen gevraagde kolommen, en veilig casten naar string
     view = df[col_order].copy()
     for c in col_order:
         view[c] = view[c].fillna("").astype(str)
 
-    # Header
     ths = []
     for c in col_order:
         w = col_widths.get(c, "auto")
         ths.append(f'<th style="width:{w}">{html.escape(c)}</th>')
     thead = "<tr>" + "".join(ths) + "</tr>"
 
-    # Body
     trs = []
     for _, row in view.iterrows():
         tds = []
         for c in col_order:
             cell = row[c]
-            # Convert linebreaks netjes
             safe = html.escape(cell).replace("\n", "<br/>")
             tds.append(f"<td>{safe}</td>")
         trs.append("<tr>" + "".join(tds) + "</tr>")
@@ -296,6 +329,84 @@ def load_gesprekken_df() -> pd.DataFrame:
     return df
 
 
+@st.cache_data(show_spinner=False)
+def load_personeelsfiche_df() -> pd.DataFrame:
+    """
+    Laadt personeelsficheGB.json en maakt een _search kolom om te matchen op:
+    - personeelsnr/nummer
+    - naam (als aanwezig)
+    - eventueel extra velden (optioneel)
+    """
+    if not PERSONEEL_JSON_PATH.exists():
+        return pd.DataFrame(columns=["_search"])
+
+    try:
+        data = json.loads(PERSONEEL_JSON_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        # fallback encoding
+        data = json.loads(PERSONEEL_JSON_PATH.read_text())
+
+    records = _flatten_json_to_records(data)
+    if not records:
+        return pd.DataFrame(columns=["_search"])
+
+    df = pd.DataFrame(records)
+
+    # probeer personeelsnr + naam te vinden
+    id_col = _find_col(df, "personeelsnr") or _find_col(df, "nummer") or _find_col(df, "personeelsnummer")
+    name_col = _find_col(df, "volledige naam") or _find_col(df, "naam") or _find_col(df, "chauffeurnaam")
+
+    if id_col is None and "_key" in df.columns:
+        id_col = "_key"
+
+    # maak uniforme weergavekolommen (optioneel)
+    if id_col and id_col != "personeelsnr":
+        df = df.rename(columns={id_col: "personeelsnr"})
+        id_col = "personeelsnr"
+    if name_col and name_col != "naam":
+        df = df.rename(columns={name_col: "naam"})
+        name_col = "naam"
+
+    if id_col is None:
+        df["personeelsnr"] = ""
+        id_col = "personeelsnr"
+    if name_col is None:
+        df["naam"] = ""
+        name_col = "naam"
+
+    df[id_col] = df[id_col].apply(clean_id)
+    df[name_col] = df[name_col].apply(clean_text)
+
+    # _search: id + naam + (beperkt) extra info
+    extra_cols = []
+    for c in df.columns:
+        if c in ["_search"]:
+            continue
+        if c in [id_col, name_col]:
+            continue
+        # neem enkele typische velden mee als ze bestaan (maakt zoeken rijker)
+        if norm(c) in ["dienst", "afdeling", "team", "functie", "rol", "standplaats", "locatie"]:
+            extra_cols.append(c)
+
+    parts = [
+        df[id_col].fillna("").astype(str),
+        df[name_col].fillna("").astype(str),
+    ]
+    for c in extra_cols[:6]:
+        parts.append(df[c].fillna("").astype(str))
+
+    df["_search"] = (" ".join(["{p}"] * len(parts))).format(
+        p=""  # dummy
+    )
+    # bovenstaande werkt niet; dus gewoon concat via pandas:
+    df["_search"] = parts[0]
+    for s in parts[1:]:
+        df["_search"] = df["_search"].astype(str) + " " + s.astype(str)
+    df["_search"] = df["_search"].str.lower()
+
+    return df
+
+
 # ----------------------------
 # Streamlit setup
 # ----------------------------
@@ -318,18 +429,19 @@ st.markdown(
         background: rgba(15, 22, 33, .86);
         backdrop-filter: blur(10px);
         border-bottom: 1px solid rgba(255,255,255,.08);
-        padding: 10px 14px;
-        border-radius: 14px;
+        padding: 14px 16px;
+        border-radius: 16px;
         margin-bottom: 14px;
       }
-      .ot-brand { display: flex; align-items: center; gap: 10px; }
+      .ot-brand { display: flex; align-items: center; gap: 12px; }
       .ot-logo {
-        width: 38px; height: 38px; object-fit: contain;
-        border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
-        background: rgba(255,255,255,.03); padding: 6px;
+        width: 52px; height: 52px; object-fit: contain;
+        border-radius: 12px; border: 1px solid rgba(255,255,255,.08);
+        background: rgba(255,255,255,.03); padding: 8px;
       }
-      .ot-title { font-size: 16px; font-weight: 700; color: #e6edf3; line-height: 1.1; }
-      .ot-sub   { font-size: 12px; color: #9aa4b2; margin-top: 2px; }
+      .ot-title { font-size: 22px; font-weight: 800; color: #e6edf3; line-height: 1.15; }
+      .ot-sub   { font-size: 14px; color: #9aa4b2; margin-top: 4px; }
+
       .block-container { padding-top: 0.5rem; }
 
       div[role="radiogroup"] > label {
@@ -351,7 +463,7 @@ st.markdown(
       table.ot-table{
         width: 100%;
         border-collapse: collapse;
-        table-layout: fixed; /* belangrijk voor vaste kolombreedtes */
+        table-layout: fixed;
       }
       table.ot-table thead th{
         position: sticky;
@@ -370,9 +482,9 @@ st.markdown(
         padding: 10px 10px;
         vertical-align: top;
         border-bottom: 1px solid rgba(255,255,255,.06);
-        white-space: normal;         /* wrap */
-        overflow-wrap: anywhere;     /* wrap */
-        word-break: break-word;      /* wrap */
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       table.ot-table tr:last-child td{
         border-bottom: none;
@@ -396,6 +508,10 @@ try:
 except Exception as e:
     st.warning(f"Gesprekkenbestand niet geladen: {e}")
     df_gesprekken = pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search", "_jaar"])
+
+df_personeel = load_personeelsfiche_df()
+if df_personeel.empty:
+    st.caption("ℹ️ personeelsficheGB.json niet gevonden of leeg (optioneel).")
 
 years_schade = df_schade["_jaar"].dropna().unique().tolist() if "_jaar" in df_schade.columns else []
 years_gespr = df_gesprekken["_jaar"].dropna().unique().tolist() if "_jaar" in df_gesprekken.columns else []
@@ -459,7 +575,7 @@ if page == "Dashboard":
     st.subheader("Dashboard")
 
     q = st.text_input(
-        "Zoek op personeelsnr of naam (en voertuig in schade). In gesprekken zoekt hij op nummer/chauffeurnaam/info.",
+        "Zoek op personeelsnr of naam (en voertuig in schade). In gesprekken zoekt hij op nummer/chauffeurnaam/info. In personeelsfiche zoekt hij op personeelsnr/naam.",
         placeholder="Typ om te zoeken…",
     ).strip().lower()
 
@@ -470,6 +586,43 @@ if page == "Dashboard":
     schade_hits = df_schade_view[df_schade_view["_search"].str.contains(re.escape(q), na=False)].copy()
     gesprekken_hits = df_gesprekken_view[df_gesprekken_view["_search"].str.contains(re.escape(q), na=False)].copy()
 
+    personeels_hits = pd.DataFrame()
+    if "_search" in df_personeel.columns and len(df_personeel) > 0:
+        personeels_hits = df_personeel[df_personeel["_search"].str.contains(re.escape(q), na=False)].copy()
+
+    # --- Personeelsfiche ---
+    st.markdown("#### Personeelsfiche (personeelsficheGB.json)")
+    if personeels_hits is None or len(personeels_hits) == 0:
+        st.caption("Geen personeelsfiche gevonden voor deze zoekterm.")
+    else:
+        # Toon eerst een kleine samenvattingstabel (indien kolommen bestaan)
+        summary_cols = []
+        for c in ["personeelsnr", "naam"]:
+            if c in personeels_hits.columns:
+                summary_cols.append(c)
+
+        if summary_cols:
+            st.dataframe(
+                personeels_hits[summary_cols].head(20),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        # Toon volledige record(s) leesbaar
+        max_show = 10
+        for i, (_, row) in enumerate(personeels_hits.head(max_show).iterrows(), start=1):
+            pid = row.get("personeelsnr", "") if "personeelsnr" in personeels_hits.columns else ""
+            nm = row.get("naam", "") if "naam" in personeels_hits.columns else ""
+            title = f"{i}. {pid} — {nm}".strip(" —")
+            with st.expander(title, expanded=(i == 1)):
+                # row is a Series -> dict
+                rec = row.drop(labels=["_search"], errors="ignore").to_dict()
+                st.json(rec)
+
+        if len(personeels_hits) > max_show:
+            st.caption(f"… en nog {len(personeels_hits) - max_show} extra matches.")
+
+    # --- Gesprekken ---
     st.markdown("#### Overzicht gesprekken (gesprekken per thema)")
     if len(gesprekken_hits) == 0:
         st.caption("Geen gesprekken gevonden voor deze zoekterm.")
@@ -478,7 +631,6 @@ if page == "Dashboard":
         display_gesprekken = gesprekken_hits[cols].copy()
         display_gesprekken["Datum"] = display_gesprekken["Datum"].apply(format_ddmmyyyy)
 
-        # ✅ HTML-tabel: eerste 3 kolommen smal, Info krijgt de rest + wrap + volledige rijhoogte
         render_html_table(
             display_gesprekken.head(300),
             col_order=["nummer", "Chauffeurnaam", "Datum", "Info"],
@@ -491,6 +643,7 @@ if page == "Dashboard":
             max_height_px=520,
         )
 
+    # --- Schade ---
     st.markdown("#### Schade (BRON)")
     if len(schade_hits) == 0:
         st.caption("Geen schadegevallen gevonden voor deze zoekterm.")
@@ -498,7 +651,6 @@ if page == "Dashboard":
         show = schade_hits[SCHADE_COLS].head(500).copy()
         show["Datum"] = show["Datum"].apply(format_ddmmyyyy)
 
-        # Schade kan gerust via dataframe (meestal minder lange tekst in 1 kolom)
         st.dataframe(
             show,
             use_container_width=True,
