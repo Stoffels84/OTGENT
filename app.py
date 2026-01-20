@@ -853,8 +853,7 @@ if current_page == "dashboard":
     st.subheader("Dashboard")
 
     q = st.text_input(
-        "Zoek op personeelsnr of naam. (Schade: nr/naam/voertuig/teamcoach) (Geplande coaching: P-nr/naam/opmerkingen) "
-        "(Voltooide coaching: nr/naam/info) (Gesprekken: nr/naam/info) (Personeelsfiche: nr/naam)",
+        "Zoek op personeelsnr of naam.",
         placeholder="Typ om te zoeken…",
     ).strip().lower()
 
