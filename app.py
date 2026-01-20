@@ -1165,9 +1165,264 @@ elif current_page == "voertuig":
     )
 
 
+
 elif current_page == "locatie":
     st.subheader("Locatie")
-    st.info("Later uitwerken (top locaties, …).")
+
+    if df_schade_view.empty:
+        st.info("Geen schadegegevens beschikbaar voor deze selectie.")
+        st.stop()
+
+    # ----------------------------
+    # Lokale helper: datum -> maand (YYYY-MM), robuust genoeg voor strings/iso
+    # ----------------------------
+    def _to_month(v) -> str:
+        if v is None:
+            return ""
+        s = str(v).strip()
+        if not s:
+            return ""
+        ts = pd.to_datetime(s, dayfirst=True, errors="coerce")
+        if pd.isna(ts):
+            return ""
+        return ts.strftime("%Y-%m")
+
+    # ----------------------------
+    # Controls
+    # ----------------------------
+    c1, c2, c3, c4, c5 = st.columns([1.0, 1.1, 1.1, 1.2, 1.4])
+    with c1:
+        top_n = st.selectbox("Top", [10, 20, 50, 100, 200], index=1)
+    with c2:
+        min_aantal = st.slider("Minimum aantal", 1, 50, 1)
+    with c3:
+        bt_vals = (
+            df_schade_view["bus/tram"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace("", "(onbekend)")
+            .unique()
+            .tolist()
+        )
+        bt_vals = sorted(bt_vals)
+        bus_tram = st.selectbox("Bus/Tram", ["Alles"] + bt_vals, index=0)
+    with c4:
+        type_vals = (
+            df_schade_view["type"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace("", "(onbekend)")
+            .unique()
+            .tolist()
+        )
+        type_vals = sorted(type_vals)
+        type_filter = st.selectbox("Type", ["Alles"] + type_vals, index=0)
+    with c5:
+        locatie_q = st.text_input("Zoek locatie", placeholder="bv. Gent, stelplaats, ...").strip().lower()
+
+    tmp = df_schade_view.copy()
+
+    # Normaliseer kernkolommen
+    tmp["Locatie"] = tmp["Locatie"].fillna("").astype(str).str.strip()
+    tmp["bus/tram"] = tmp["bus/tram"].fillna("").astype(str).str.strip().replace("", "(onbekend)")
+    tmp["type"] = tmp["type"].fillna("").astype(str).str.strip().replace("", "(onbekend)")
+    tmp["voertuig"] = tmp["voertuig"].fillna("").astype(str).str.strip().replace("", "(onbekend)")
+    tmp["teamcoach"] = tmp["teamcoach"].fillna("").astype(str).str.strip().replace("", "(onbekend)")
+
+    # Label lege locaties
+    tmp["Locatie"] = tmp["Locatie"].replace("", "(onbekend)")
+
+    # Filters
+    if bus_tram != "Alles":
+        tmp = tmp[tmp["bus/tram"] == bus_tram].copy()
+
+    if type_filter != "Alles":
+        tmp = tmp[tmp["type"] == type_filter].copy()
+
+    if locatie_q:
+        tmp = tmp[tmp["Locatie"].str.lower().str.contains(re.escape(locatie_q), na=False)].copy()
+
+    # ----------------------------
+    # KPI’s
+    # ----------------------------
+    total_cases = len(tmp)
+    unique_locaties = tmp["Locatie"].nunique(dropna=True)
+    avg_per_loc = (total_cases / unique_locaties) if unique_locaties else 0.0
+
+    top_loc = ""
+    top_loc_count = 0
+    if total_cases > 0:
+        lc = tmp.groupby("Locatie").size().sort_values(ascending=False)
+        if len(lc) > 0:
+            top_loc = str(lc.index[0])
+            top_loc_count = int(lc.iloc[0])
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Schadegevallen", f"{total_cases}")
+    k2.metric("Unieke locaties", f"{unique_locaties}")
+    k3.metric("Gemiddeld / locatie", f"{avg_per_loc:.2f}")
+    k4.metric("Top locatie", f"{top_loc_count} — {top_loc}" if top_loc else "—")
+
+    st.divider()
+
+    # ----------------------------
+    # Top locaties (tabel + bar chart)
+    # ----------------------------
+    st.markdown("### 📍 Hotspots: locaties met meeste schadegevallen")
+
+    locaties_counts = (
+        tmp.groupby("Locatie")
+        .size()
+        .reset_index(name="Aantal")
+        .sort_values("Aantal", ascending=False)
+    )
+    locaties_counts = locaties_counts[locaties_counts["Aantal"] >= min_aantal].copy()
+
+    def _mode_or_empty(s: pd.Series) -> str:
+        s = s.dropna().astype(str).str.strip()
+        s = s[s != ""]
+        if s.empty:
+            return ""
+        return s.value_counts().index[0]
+
+    extra = (
+        tmp.groupby("Locatie", dropna=False)
+        .agg(
+            LaatsteDatum=("Datum", lambda x: pd.to_datetime(x, dayfirst=True, errors="coerce").max()),
+            TopType=("type", _mode_or_empty),
+            TopVoertuig=("voertuig", _mode_or_empty),
+            TopTeamcoach=("teamcoach", _mode_or_empty),
+        )
+        .reset_index()
+    )
+
+    # Forceer datetime dtype => .dt werkt altijd
+    extra["LaatsteDatum"] = pd.to_datetime(extra["LaatsteDatum"], errors="coerce")
+    extra["LaatsteDatum"] = extra["LaatsteDatum"].dt.strftime("%d-%m-%Y").fillna("")
+
+    top_table = locaties_counts.merge(extra, on="Locatie", how="left").head(top_n)
+
+    st.dataframe(
+        top_table,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Locatie": st.column_config.TextColumn("Locatie", width="large"),
+            "Aantal": st.column_config.NumberColumn("Aantal", width="small"),
+            "LaatsteDatum": st.column_config.TextColumn("Laatste datum", width="small"),
+            "TopType": st.column_config.TextColumn("Meest voorkomend type", width="medium"),
+            "TopVoertuig": st.column_config.TextColumn("Meest voorkomend voertuig", width="small"),
+            "TopTeamcoach": st.column_config.TextColumn("Meest voorkomend teamcoach", width="medium"),
+        },
+    )
+
+    if top_table.empty:
+        st.caption("Geen locaties binnen deze filters.")
+        st.stop()
+
+    st.bar_chart(top_table.set_index("Locatie")["Aantal"])
+
+    st.divider()
+
+    # ----------------------------
+    # Kies locatie + trend per maand + breakdown + details
+    # ----------------------------
+    st.markdown("### 📈 Trend & details voor gekozen locatie")
+
+    locatie_options = top_table["Locatie"].tolist()
+    gekozen_locatie = st.selectbox("Kies locatie", locatie_options, index=0)
+
+    ldf = tmp[tmp["Locatie"] == gekozen_locatie].copy()
+
+    # Trend per maand
+    ldf["Maand"] = ldf["Datum"].apply(_to_month)
+    per_maand = (
+        ldf[ldf["Maand"] != ""]
+        .groupby("Maand")
+        .size()
+        .reset_index(name="Aantal")
+        .sort_values("Maand")
+    )
+
+    cL, cR = st.columns([1.2, 1.0], gap="large")
+
+    with cL:
+        st.markdown("#### Schade per maand")
+        if per_maand.empty:
+            st.caption("Geen geldige datums om per maand te groeperen.")
+        else:
+            st.dataframe(per_maand, use_container_width=True, hide_index=True)
+            st.bar_chart(per_maand.set_index("Maand")["Aantal"])
+
+    with cR:
+        st.markdown("#### Breakdown (top 10)")
+
+        per_type = (
+            ldf.groupby("type")
+            .size()
+            .reset_index(name="Aantal")
+            .sort_values("Aantal", ascending=False)
+            .head(10)
+        )
+        st.caption("Type")
+        st.dataframe(per_type, use_container_width=True, hide_index=True)
+
+        per_voertuig = (
+            ldf.groupby("voertuig")
+            .size()
+            .reset_index(name="Aantal")
+            .sort_values("Aantal", ascending=False)
+            .head(10)
+        )
+        st.caption("Voertuig")
+        st.dataframe(per_voertuig, use_container_width=True, hide_index=True)
+
+        per_teamcoach = (
+            ldf.groupby("teamcoach")
+            .size()
+            .reset_index(name="Aantal")
+            .sort_values("Aantal", ascending=False)
+            .head(10)
+        )
+        st.caption("Teamcoach")
+        st.dataframe(per_teamcoach, use_container_width=True, hide_index=True)
+
+    st.markdown("#### Detail-lijst (laatste 200)")
+
+    detail_cols = [
+        c for c in
+        ["Datum", "type", "voertuig", "bus/tram", "teamcoach", "volledige naam", "personeelsnr", "Link"]
+        if c in ldf.columns
+    ]
+    details = ldf[detail_cols].copy()
+
+    if "Datum" in details.columns:
+        details["Datum"] = details["Datum"].apply(format_ddmmyyyy)
+
+    # Sorteer op datum (nieuwste eerst) indien mogelijk
+    try:
+        sort_ts = pd.to_datetime(ldf["Datum"].astype(str), dayfirst=True, errors="coerce")
+        details["_sort"] = sort_ts
+        details = details.sort_values("_sort", ascending=False).drop(columns=["_sort"])
+    except Exception:
+        pass
+
+    if "Link" in details.columns:
+        details["Link"] = details["Link"].replace({"": None})
+
+    column_config = {}
+    if "Link" in details.columns:
+        column_config["Link"] = st.column_config.LinkColumn("Open EAF", display_text="Open EAF", width="small")
+
+    st.dataframe(
+        details.head(200),
+        use_container_width=True,
+        hide_index=True,
+        column_config=column_config if column_config else None,
+    )
+
 
 elif current_page == "coaching":
     st.subheader("Coaching")
