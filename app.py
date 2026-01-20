@@ -927,7 +927,6 @@ elif current_page == "chauffeur":
     )
 
 elif current_page == "voertuig":
-elif current_page == "voertuig":
     st.subheader("Voertuig")
 
     if df_schade_view.empty:
