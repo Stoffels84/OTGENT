@@ -11,8 +11,13 @@ import streamlit as st
 import openpyxl
 
 
+# ----------------------------
+# Paths / Config
+# ----------------------------
 APP_DIR = Path(__file__).parent
+
 XLSM_PATH = APP_DIR / "schade met macro.xlsm"
+SCHADESHEET = "BRON"
 
 GESPREKKEN_XLSX_PATH = APP_DIR / "Overzicht gesprekken (aangepast).xlsx"
 GESPREKKEN_SHEET_NAME = "gesprekken per thema"
@@ -22,8 +27,6 @@ COACHINGS_SHEET_NAME = "Voltooide coachings"
 
 PERSONEEL_JSON_PATH = APP_DIR / "personeelsficheGB.json"
 LOGO_PATH = APP_DIR / "logo.png"
-
-SCHADESHEET = "BRON"
 
 SCHADE_COLS = [
     "personeelsnr",
@@ -109,26 +112,29 @@ def img_to_data_uri(path: Path) -> str:
 def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
     w = norm(wanted)
 
-    # exact
+    # exact match
     for c in df.columns:
         if norm(c) == w:
             return c
 
-    # nummer/id
+    # id/nummer
     if w in ["nummer", "personeelsnr", "personeelsnummer"]:
-        for alt in ["nr", "id", "persnr", "personeelsnr", "personeelsnummer", "nummer", "employeeid", "employee_id"]:
+        for alt in [
+            "nr", "id", "persnr", "personeelsnr", "personeelsnummer", "nummer",
+            "employeeid", "employee_id"
+        ]:
             for c in df.columns:
                 if norm(c) == norm(alt):
                     return c
 
     # datum
     if w == "datum":
-        for alt in ["date", "datum gesprek", "gespreksdatum", "datum coaching", "coachingsdatum", "datum_coaching"]:
+        for alt in ["date", "datum gesprek", "gespreksdatum", "datum coaching", "coachingsdatum"]:
             for c in df.columns:
                 if norm(c) == norm(alt):
                     return c
 
-    # info
+    # info/notes
     if w == "info":
         for alt in [
             "informatie", "opmerking", "opmerkingen", "beschrijving", "details",
@@ -208,6 +214,28 @@ def render_html_table(
     </div>
     """
     st.markdown(table_html, unsafe_allow_html=True)
+
+
+# ----------------------------
+# Query param helpers (tabs)
+# ----------------------------
+def get_query_param(name: str, default: str) -> str:
+    try:
+        # new API
+        v = st.query_params.get(name, default)
+        if isinstance(v, list):
+            return v[0] if v else default
+        return v
+    except Exception:
+        # legacy
+        qp = st.experimental_get_query_params()
+        v = qp.get(name, [default])
+        return v[0] if v else default
+
+
+def make_tab_href(page_id: str) -> str:
+    # we keep it simple: only page param
+    return f"?page={page_id}"
 
 
 # ----------------------------
@@ -354,7 +382,6 @@ def load_coaching_df() -> pd.DataFrame:
     info_col = _find_col(df, "Info")
 
     if num_col is None:
-        # we maken nummer leeg, maar blijven werken
         df["nummer"] = ""
         num_col = "nummer"
     if num_col != "nummer":
@@ -371,10 +398,12 @@ def load_coaching_df() -> pd.DataFrame:
         df = df.rename(columns={date_col: "Datum"})
 
     if info_col is None:
-        # als er geen duidelijke info-kolom is: probeer thema/onderwerp/opmerking te combineren
         candidates = []
         for c in df.columns:
-            if norm(c) in ["thema", "onderwerp", "opmerking", "opmerkingen", "samenvatting", "notities", "commentaar", "actiepunten", "resultaat"]:
+            if norm(c) in [
+                "thema", "onderwerp", "opmerking", "opmerkingen", "samenvatting",
+                "notities", "commentaar", "actiepunten", "resultaat"
+            ]:
                 candidates.append(c)
         if candidates:
             df["Info"] = df[candidates].fillna("").astype(str).agg(" | ".join, axis=1)
@@ -461,6 +490,34 @@ def load_personeelsfiche_df() -> pd.DataFrame:
 # ----------------------------
 st.set_page_config(page_title="Analyse en rapportering OT Gent", layout="wide")
 
+# Sidebar: cache clear
+with st.sidebar:
+    st.markdown("### ⚙️ Beheer")
+    if st.button("🧹 Cache wissen & opnieuw laden", use_container_width=True):
+        st.cache_data.clear()
+        try:
+            st.cache_resource.clear()
+        except Exception:
+            pass
+        st.rerun()
+    st.caption("Tip: gebruik dit als je Excel/JSON bestanden aangepast hebt.")
+
+# Pages / Tabs
+PAGES = [
+    ("dashboard", "Dashboard"),
+    ("chauffeur", "Chauffeur"),
+    ("voertuig", "Voertuig"),
+    ("locatie", "Locatie"),
+    ("coaching", "Coaching"),
+    ("analyse", "Analyse"),
+]
+
+current_page = get_query_param("page", "dashboard").strip().lower()
+valid_pages = {pid for pid, _ in PAGES}
+if current_page not in valid_pages:
+    current_page = "dashboard"
+
+# Styles (topbar + custom tabs + html tables)
 st.markdown(
     """
     <style>
@@ -469,7 +526,12 @@ st.markdown(
                     radial-gradient(900px 600px at 90% 20%, rgba(120,80,255,.10), transparent 55%),
                     #0b0f14;
       }
-      section[data-testid="stSidebar"] { display: none; }
+
+      /* Sidebar ook in theme */
+      section[data-testid="stSidebar"]{
+        background: rgba(10,14,20,.92);
+        border-right: 1px solid rgba(255,255,255,.06);
+      }
 
       .ot-topbar {
         position: sticky;
@@ -493,14 +555,51 @@ st.markdown(
 
       .block-container { padding-top: 0.5rem; }
 
-      div[role="radiogroup"] > label {
-        background: rgba(255,255,255,.02);
-        border: 1px solid rgba(255,255,255,.08);
-        padding: 8px 12px !important;
-        border-radius: 999px !important;
-        margin-right: 8px !important;
+      /* Custom tabbar */
+      .ot-tabs {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 2px;
       }
-      div[role="radiogroup"] > label:hover { background: rgba(255,255,255,.05); }
+      .ot-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,.10);
+        background: rgba(255,255,255,.02);
+        color: #cbd5e1;
+        text-decoration: none !important;
+        font-weight: 600;
+        font-size: 13px;
+        transition: all .15s ease;
+      }
+      .ot-tab:hover {
+        background: rgba(255,255,255,.05);
+        border-color: rgba(255,255,255,.18);
+        transform: translateY(-1px);
+      }
+      .ot-tab.active {
+        color: #e6edf3;
+        background: rgba(74,163,255,.14);
+        border-color: rgba(74,163,255,.35);
+        box-shadow: 0 0 0 1px rgba(74,163,255,.18) inset,
+                    0 10px 30px rgba(74,163,255,.10);
+      }
+      .ot-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.25);
+      }
+      .ot-tab.active .ot-dot {
+        background: rgba(255,80,80,.95);
+        box-shadow: 0 0 0 4px rgba(255,80,80,.18);
+      }
 
       /* ---- HTML tabel (wrap + sticky header) ---- */
       .ot-table-wrap{
@@ -577,7 +676,7 @@ years = sorted({int(y) for y in (years_schade + years_gespr + years_coach) if y 
 # ----------------------------
 st.markdown('<div class="ot-topbar">', unsafe_allow_html=True)
 
-c1, c2, c3 = st.columns([2.4, 1.2, 3.2])
+c1, c2, c3 = st.columns([2.3, 1.2, 3.5])
 
 with c1:
     logo_html = (
@@ -602,12 +701,16 @@ with c2:
     year_choice = st.selectbox("Jaar", ["Alle"] + [str(y) for y in years], index=0)
 
 with c3:
-    page = st.radio(
-        "Menu",
-        ["Dashboard", "Chauffeur", "Voertuig", "Locatie", "Coaching", "Analyse"],
-        horizontal=True,
-        label_visibility="collapsed",
-    )
+    # Custom tabs (HTML)
+    tabs_html = ['<div class="ot-tabs">']
+    for pid, label in PAGES:
+        active = "active" if pid == current_page else ""
+        href = make_tab_href(pid)
+        tabs_html.append(
+            f'<a class="ot-tab {active}" href="{href}"><span class="ot-dot"></span>{html.escape(label)}</a>'
+        )
+    tabs_html.append("</div>")
+    st.markdown("".join(tabs_html), unsafe_allow_html=True)
 
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -616,10 +719,11 @@ df_schade_view = df_schade[df_schade["_jaar"] == int(year_choice)].copy() if yea
 df_gesprekken_view = df_gesprekken[df_gesprekken["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_gesprekken.copy()
 df_coaching_view = df_coaching[df_coaching["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_coaching.copy()
 
+
 # ----------------------------
 # Pages
 # ----------------------------
-if page == "Dashboard":
+if current_page == "dashboard":
     st.subheader("Dashboard")
 
     q = st.text_input(
@@ -726,22 +830,22 @@ if page == "Dashboard":
             },
         )
 
-elif page == "Chauffeur":
+elif current_page == "chauffeur":
     st.subheader("Chauffeur")
     st.info("Later uitwerken (filters/aggregaties op BRON).")
 
-elif page == "Voertuig":
+elif current_page == "voertuig":
     st.subheader("Voertuig")
     st.info("Later uitwerken (top voertuigen, trends, …).")
 
-elif page == "Locatie":
+elif current_page == "locatie":
     st.subheader("Locatie")
     st.info("Later uitwerken (top locaties, …).")
 
-elif page == "Coaching":
+elif current_page == "coaching":
     st.subheader("Coaching")
     st.info("Later uitwerken (filters/aggregaties op coaching + koppeling).")
 
-elif page == "Analyse":
+elif current_page == "analyse":
     st.subheader("Analyse")
     st.info("Later: grafieken per maand, schade per type, …")
