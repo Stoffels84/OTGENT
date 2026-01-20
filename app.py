@@ -848,7 +848,12 @@ if current_page == "dashboard":
                 "personeelsnr": st.column_config.TextColumn("personeelsnr", width="small"),
                 "volledige naam": st.column_config.TextColumn("volledige naam", width="medium"),
                 "Datum": st.column_config.TextColumn("Datum", width="small"),
-                "Link": st.column_config.LinkColumn("Link", width="small"),
+"Link": st.column_config.LinkColumn(
+    "Link",
+    display_text="Open EAF",
+    width="small",
+),
+
                 "Locatie": st.column_config.TextColumn("Locatie", width="medium"),
                 "voertuig": st.column_config.TextColumn("voertuig", width="medium"),
                 "bus/tram": st.column_config.TextColumn("bus/tram", width="small"),
