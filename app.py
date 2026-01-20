@@ -24,7 +24,7 @@ GESPREKKEN_SHEET_NAME = "gesprekken per thema"
 
 COACHINGS_XLSX_PATH = APP_DIR / "Coachingslijst.xlsx"
 COACHINGS_SHEET_VOLTOOID = "Voltooide coachings"
-COACHINGS_SHEET_COACHING = "Coaching"  # ✅ nieuw tabblad
+COACHINGS_SHEET_COACHING = "Coaching"
 
 PERSONEEL_JSON_PATH = APP_DIR / "personeelsficheGB.json"
 LOGO_PATH = APP_DIR / "logo.png"
@@ -128,9 +128,19 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
 
     if w in ["nummer", "personeelsnr", "personeelsnummer", "p-nr", "p_nr", "p nr", "p-nr."]:
         for alt in [
-            "nr", "id", "persnr", "personeelsnr", "personeelsnummer",
-            "nummer", "employeeid", "employee_id",
-            "p-nr", "p nr", "p_nr", "p-nr."
+            "nr",
+            "id",
+            "persnr",
+            "personeelsnr",
+            "personeelsnummer",
+            "nummer",
+            "employeeid",
+            "employee_id",
+            "p-nr",
+            "p nr",
+            "p_nr",
+            "p-nr.",
+            "p-nr (p-nr)",
         ]:
             for c in df.columns:
                 if norm(c) == norm(alt):
@@ -144,9 +154,21 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
 
     if w == "info":
         for alt in [
-            "informatie", "opmerking", "opmerkingen", "beschrijving", "details",
-            "thema", "onderwerp", "samenvatting", "actiepunten", "resultaat", "notities", "commentaar",
-            "opmerkingen (coach)", "opmerkingen chauffeur"
+            "informatie",
+            "opmerking",
+            "opmerkingen",
+            "beschrijving",
+            "details",
+            "thema",
+            "onderwerp",
+            "samenvatting",
+            "actiepunten",
+            "resultaat",
+            "notities",
+            "commentaar",
+            "opmerkingen (coach)",
+            "opmerkingen chauffeur",
+            "opmerkingen",
         ]:
             for c in df.columns:
                 if norm(c) == norm(alt):
@@ -154,8 +176,17 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
 
     if w in ["volledige naam", "chauffeurnaam", "naam"]:
         for alt in [
-            "chauffeurnaam", "chauffeur naam", "naam", "medewerker", "werknemer", "chauffeur",
-            "volledige naam", "full name", "fullname", "displayname", "display_name"
+            "chauffeurnaam",
+            "chauffeur naam",
+            "naam",
+            "medewerker",
+            "werknemer",
+            "chauffeur",
+            "volledige naam",
+            "full name",
+            "fullname",
+            "displayname",
+            "display_name",
         ]:
             for c in df.columns:
                 if norm(c) == norm(alt):
@@ -305,9 +336,11 @@ def load_schade_df() -> pd.DataFrame:
 
     df["_jaar"] = df["Datum"].apply(parse_year)
     df["_search"] = (
-        df["personeelsnr"].fillna("").astype(str) + " " +
-        df["volledige naam"].fillna("").astype(str) + " " +
-        df["voertuig"].fillna("").astype(str)
+        df["personeelsnr"].fillna("").astype(str)
+        + " "
+        + df["volledige naam"].fillna("").astype(str)
+        + " "
+        + df["voertuig"].fillna("").astype(str)
     ).str.lower()
     return df
 
@@ -353,9 +386,11 @@ def load_gesprekken_df() -> pd.DataFrame:
     df["Chauffeurnaam"] = df["Chauffeurnaam"].apply(clean_text)
 
     df["_search"] = (
-        df["nummer"].fillna("").astype(str) + " " +
-        df["Chauffeurnaam"].fillna("").astype(str) + " " +
-        df["Info"].fillna("").astype(str)
+        df["nummer"].fillna("").astype(str)
+        + " "
+        + df["Chauffeurnaam"].fillna("").astype(str)
+        + " "
+        + df["Info"].fillna("").astype(str)
     ).str.lower()
     df["_jaar"] = df["Datum"].apply(parse_year)
     return df
@@ -363,7 +398,6 @@ def load_gesprekken_df() -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_coaching_voltooid_df() -> pd.DataFrame:
-    """Voltooide coachings tab"""
     if not COACHINGS_XLSX_PATH.exists():
         return pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search", "_jaar"])
 
@@ -383,34 +417,44 @@ def load_coaching_voltooid_df() -> pd.DataFrame:
 
     if num_col is None:
         df["nummer"] = ""
-        num_col = "nummer"
-    if num_col != "nummer":
-        df = df.rename(columns={num_col: "nummer"})
+    else:
+        if num_col != "nummer":
+            df = df.rename(columns={num_col: "nummer"})
 
     if name_col is None:
         df["Chauffeurnaam"] = ""
-    elif name_col != "Chauffeurnaam":
-        df = df.rename(columns={name_col: "Chauffeurnaam"})
+    else:
+        if name_col != "Chauffeurnaam":
+            df = df.rename(columns={name_col: "Chauffeurnaam"})
 
     if date_col is None:
         df["Datum"] = ""
-    elif date_col != "Datum":
-        df = df.rename(columns={date_col: "Datum"})
+    else:
+        if date_col != "Datum":
+            df = df.rename(columns={date_col: "Datum"})
 
     if info_col is None:
         candidates = []
         for c in df.columns:
             if norm(c) in [
-                "thema", "onderwerp", "opmerking", "opmerkingen", "samenvatting",
-                "notities", "commentaar", "actiepunten", "resultaat"
+                "thema",
+                "onderwerp",
+                "opmerking",
+                "opmerkingen",
+                "samenvatting",
+                "notities",
+                "commentaar",
+                "actiepunten",
+                "resultaat",
             ]:
                 candidates.append(c)
         if candidates:
             df["Info"] = df[candidates].fillna("").astype(str).agg(" | ".join, axis=1)
         else:
             df["Info"] = ""
-    elif info_col != "Info":
-        df = df.rename(columns={info_col: "Info"})
+    else:
+        if info_col != "Info":
+            df = df.rename(columns={info_col: "Info"})
 
     df["nummer"] = df["nummer"].apply(clean_id)
     df["Chauffeurnaam"] = df["Chauffeurnaam"].apply(clean_text)
@@ -418,9 +462,11 @@ def load_coaching_voltooid_df() -> pd.DataFrame:
     df["Info"] = df["Info"].apply(clean_text)
 
     df["_search"] = (
-        df["nummer"].fillna("").astype(str) + " " +
-        df["Chauffeurnaam"].fillna("").astype(str) + " " +
-        df["Info"].fillna("").astype(str)
+        df["nummer"].fillna("").astype(str)
+        + " "
+        + df["Chauffeurnaam"].fillna("").astype(str)
+        + " "
+        + df["Info"].fillna("").astype(str)
     ).str.lower()
     df["_jaar"] = df["Datum"].apply(parse_year)
     return df
@@ -429,9 +475,8 @@ def load_coaching_voltooid_df() -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def load_coaching_tab_df() -> pd.DataFrame:
     """
-    ✅ Nieuw: Coachingslijst.xlsx -> tab 'Coaching'
+    Coachingslijst.xlsx -> tab 'Coaching'
     Kolommen: P-nr, Volledige naam, Opmerkingen
-    Normalisatie naar: nummer, Chauffeurnaam, Info (+ _search)
     """
     if not COACHINGS_XLSX_PATH.exists():
         return pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Info", "_search"])
@@ -472,11 +517,12 @@ def load_coaching_tab_df() -> pd.DataFrame:
     df["Info"] = df["Info"].apply(clean_text)
 
     df["_search"] = (
-        df["nummer"].fillna("").astype(str) + " " +
-        df["Chauffeurnaam"].fillna("").astype(str) + " " +
-        df["Info"].fillna("").astype(str)
+        df["nummer"].fillna("").astype(str)
+        + " "
+        + df["Chauffeurnaam"].fillna("").astype(str)
+        + " "
+        + df["Info"].fillna("").astype(str)
     ).str.lower()
-
     return df
 
 
@@ -572,7 +618,7 @@ st.markdown(
       .ot-title { font-size: 22px; font-weight: 800; color: #e6edf3; line-height: 1.15; }
       .ot-sub   { font-size: 14px; color: #9aa4b2; margin-top: 4px; }
 
-      /* tab buttons (Streamlit) */
+      /* tab buttons */
       div[data-testid="stHorizontalBlock"] .ot-tab-btn button{
         border-radius: 999px !important;
         padding: 10px 14px !important;
@@ -596,7 +642,7 @@ st.markdown(
                     0 10px 30px rgba(74,163,255,.10);
       }
 
-      /* ---- HTML table (wrap + sticky header) ---- */
+      /* ---- HTML table ---- */
       .ot-table-wrap{
         overflow: auto;
         border: 1px solid rgba(255,255,255,.08);
@@ -681,11 +727,7 @@ st.markdown('<div class="ot-topbar">', unsafe_allow_html=True)
 c1, c2, c3 = st.columns([2.3, 1.2, 3.5], vertical_alignment="center")
 
 with c1:
-    logo_html = (
-        f'<img class="ot-logo" src="{img_to_data_uri(LOGO_PATH)}" alt="Logo" />'
-        if LOGO_PATH.exists()
-        else ""
-    )
+    logo_html = f'<img class="ot-logo" src="{img_to_data_uri(LOGO_PATH)}" alt="Logo" />' if LOGO_PATH.exists() else ""
     st.markdown(
         f"""
         <div class="ot-brand">
@@ -708,10 +750,7 @@ with c3:
     for (pid, label), col in zip(PAGES, tab_cols[:6]):
         with col:
             active = (pid == current_page)
-            st.markdown(
-                f'<div class="ot-tab-btn {"active" if active else ""}">',
-                unsafe_allow_html=True,
-            )
+            st.markdown(f'<div class="ot-tab-btn {"active" if active else ""}">', unsafe_allow_html=True)
             if st.button(label, key=f"tab_{pid}", use_container_width=True):
                 set_page(pid)
             st.markdown("</div>", unsafe_allow_html=True)
@@ -729,13 +768,18 @@ with c3:
 
 st.markdown("</div>", unsafe_allow_html=True)
 
+
 # ----------------------------
 # Year filter views
 # ----------------------------
 df_schade_view = df_schade[df_schade["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_schade.copy()
 df_gesprekken_view = df_gesprekken[df_gesprekken["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_gesprekken.copy()
-df_coach_voltooid_view = df_coach_voltooid[df_coach_voltooid["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_coach_voltooid.copy()
-# coaching-tab heeft geen datum/year filter (alleen nr/naam/opmerkingen)
+df_coach_voltooid_view = (
+    df_coach_voltooid[df_coach_voltooid["_jaar"] == int(year_choice)].copy()
+    if year_choice != "Alle"
+    else df_coach_voltooid.copy()
+)
+# df_coach_tab heeft geen jaarfilter (geen datumkolom)
 
 
 # ----------------------------
@@ -744,9 +788,10 @@ df_coach_voltooid_view = df_coach_voltooid[df_coach_voltooid["_jaar"] == int(yea
 if current_page == "dashboard":
     st.subheader("Dashboard")
 
+    # 1) Zoekvenster
     q = st.text_input(
-        "Zoek op personeelsnr of naam. (Schade: nr/naam/voertuig) (Gesprekken: nr/naam/info) "
-        "(Voltooide coachings: nr/naam/info) (Coaching: P-nr/naam/opmerkingen) (Personeelsfiche: nr/naam)",
+        "Zoek op personeelsnr of naam. (Schade: nr/naam/voertuig) (Geplande coaching: P-nr/naam/opmerkingen) "
+        "(Voltooide coaching: nr/naam/info) (Gesprekken: nr/naam/info) (Personeelsfiche: nr/naam)",
         placeholder="Typ om te zoeken…",
     ).strip().lower()
 
@@ -754,6 +799,7 @@ if current_page == "dashboard":
         st.caption("Typ iets in het zoekveld om resultaten te zien.")
         st.stop()
 
+    # Hits
     schade_hits = df_schade_view[df_schade_view["_search"].str.contains(re.escape(q), na=False)].copy()
     gesprekken_hits = df_gesprekken_view[df_gesprekken_view["_search"].str.contains(re.escape(q), na=False)].copy()
     coach_volt_hits = df_coach_voltooid_view[df_coach_voltooid_view["_search"].str.contains(re.escape(q), na=False)].copy()
@@ -766,7 +812,7 @@ if current_page == "dashboard":
     if "_search" in df_personeel.columns and len(df_personeel) > 0:
         personeels_hits = df_personeel[df_personeel["_search"].str.contains(re.escape(q), na=False)].copy()
 
-    # --- Personeelsfiche ---
+    # 2) Personeelsfiche
     st.markdown("#### Personeelsfiche (personeelsficheGB.json)")
     if len(personeels_hits) == 0:
         st.caption("Geen personeelsfiche gevonden voor deze zoekterm.")
@@ -787,74 +833,13 @@ if current_page == "dashboard":
         if len(personeels_hits) > max_show:
             st.caption(f"… en nog {len(personeels_hits) - max_show} extra matches.")
 
-    # --- Coaching (tabblad Coaching) ---
-    st.markdown("#### Coaching (Coachingslijst.xlsx → tabblad 'Coaching')")
-    if len(coach_tab_hits) == 0:
-        st.caption("Geen coaching-info gevonden voor deze zoekterm.")
-    else:
-        # ✅ gevraagde kolommen: P-nr, Volledige naam, Opmerkingen -> nu genormaliseerd:
-        # nummer, Chauffeurnaam, Info
-        display_ct = coach_tab_hits[["nummer", "Chauffeurnaam", "Info"]].copy()
-
-        render_html_table(
-            display_ct.head(300),
-            col_order=["nummer", "Chauffeurnaam", "Info"],
-            col_widths={
-                "nummer": "90px",
-                "Chauffeurnaam": "220px",
-                "Info": "auto",
-            },
-            max_height_px=520,
-        )
-
-    # --- Voltooide coachings ---
-    st.markdown("#### Voltooide coachings (Coachingslijst.xlsx)")
-    if len(coach_volt_hits) == 0:
-        st.caption("Geen voltooide coachings gevonden voor deze zoekterm.")
-    else:
-        display_v = coach_volt_hits[["nummer", "Chauffeurnaam", "Datum", "Info"]].copy()
-        display_v["Datum"] = display_v["Datum"].apply(format_ddmmyyyy)
-
-        render_html_table(
-            display_v.head(300),
-            col_order=["nummer", "Chauffeurnaam", "Datum", "Info"],
-            col_widths={
-                "nummer": "90px",
-                "Chauffeurnaam": "180px",
-                "Datum": "120px",
-                "Info": "auto",
-            },
-            max_height_px=520,
-        )
-
-    # --- Gesprekken ---
-    st.markdown("#### Overzicht gesprekken (gesprekken per thema)")
-    if len(gesprekken_hits) == 0:
-        st.caption("Geen gesprekken gevonden voor deze zoekterm.")
-    else:
-        display_g = gesprekken_hits[["nummer", "Chauffeurnaam", "Datum", "Info"]].copy()
-        display_g["Datum"] = display_g["Datum"].apply(format_ddmmyyyy)
-
-        render_html_table(
-            display_g.head(300),
-            col_order=["nummer", "Chauffeurnaam", "Datum", "Info"],
-            col_widths={
-                "nummer": "90px",
-                "Chauffeurnaam": "180px",
-                "Datum": "120px",
-                "Info": "auto",
-            },
-            max_height_px=520,
-        )
-
-    # --- Schade ---
+    # 3) Schade
     st.markdown("#### Schade (BRON)")
     if len(schade_hits) == 0:
         st.caption("Geen schadegevallen gevonden voor deze zoekterm.")
     else:
         show = schade_hits[SCHADE_COLS].head(500).copy()
         show["Datum"] = show["Datum"].apply(format_ddmmyyyy)
-
         st.dataframe(
             show,
             use_container_width=True,
@@ -869,6 +854,47 @@ if current_page == "dashboard":
                 "bus/tram": st.column_config.TextColumn("bus/tram", width="small"),
                 "type": st.column_config.TextColumn("type", width="small"),
             },
+        )
+
+    # 4) Geplande coaching
+    st.markdown("#### Geplande coaching (Coachingslijst.xlsx → tabblad 'Coaching')")
+    if len(coach_tab_hits) == 0:
+        st.caption("Geen geplande coaching-info gevonden voor deze zoekterm.")
+    else:
+        display_ct = coach_tab_hits[["nummer", "Chauffeurnaam", "Info"]].copy()
+        render_html_table(
+            display_ct.head(300),
+            col_order=["nummer", "Chauffeurnaam", "Info"],
+            col_widths={"nummer": "90px", "Chauffeurnaam": "220px", "Info": "auto"},
+            max_height_px=520,
+        )
+
+    # 5) Voltooide coaching
+    st.markdown("#### Voltooide coaching (Coachingslijst.xlsx → tabblad 'Voltooide coachings')")
+    if len(coach_volt_hits) == 0:
+        st.caption("Geen voltooide coachings gevonden voor deze zoekterm.")
+    else:
+        display_v = coach_volt_hits[["nummer", "Chauffeurnaam", "Datum", "Info"]].copy()
+        display_v["Datum"] = display_v["Datum"].apply(format_ddmmyyyy)
+        render_html_table(
+            display_v.head(300),
+            col_order=["nummer", "Chauffeurnaam", "Datum", "Info"],
+            col_widths={"nummer": "90px", "Chauffeurnaam": "180px", "Datum": "120px", "Info": "auto"},
+            max_height_px=520,
+        )
+
+    # 6) Overzicht gesprekken
+    st.markdown("#### Overzicht gesprekken (gesprekken per thema)")
+    if len(gesprekken_hits) == 0:
+        st.caption("Geen gesprekken gevonden voor deze zoekterm.")
+    else:
+        display_g = gesprekken_hits[["nummer", "Chauffeurnaam", "Datum", "Info"]].copy()
+        display_g["Datum"] = display_g["Datum"].apply(format_ddmmyyyy)
+        render_html_table(
+            display_g.head(300),
+            col_order=["nummer", "Chauffeurnaam", "Datum", "Info"],
+            col_widths={"nummer": "90px", "Chauffeurnaam": "180px", "Datum": "120px", "Info": "auto"},
+            max_height_px=520,
         )
 
 elif current_page == "chauffeur":
