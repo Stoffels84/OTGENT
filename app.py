@@ -13,8 +13,13 @@ import openpyxl
 
 APP_DIR = Path(__file__).parent
 XLSM_PATH = APP_DIR / "schade met macro.xlsm"
+
 GESPREKKEN_XLSX_PATH = APP_DIR / "Overzicht gesprekken (aangepast).xlsx"
 GESPREKKEN_SHEET_NAME = "gesprekken per thema"
+
+COACHINGS_XLSX_PATH = APP_DIR / "Coachingslijst.xlsx"
+COACHINGS_SHEET_NAME = "Voltooide coachings"
+
 PERSONEEL_JSON_PATH = APP_DIR / "personeelsficheGB.json"
 LOGO_PATH = APP_DIR / "logo.png"
 
@@ -32,6 +37,9 @@ SCHADE_COLS = [
 ]
 
 
+# ----------------------------
+# Helpers
+# ----------------------------
 def norm(s) -> str:
     return str(s).strip().lower()
 
@@ -100,28 +108,37 @@ def img_to_data_uri(path: Path) -> str:
 
 def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
     w = norm(wanted)
+
+    # exact
     for c in df.columns:
         if norm(c) == w:
             return c
 
+    # nummer/id
     if w in ["nummer", "personeelsnr", "personeelsnummer"]:
         for alt in ["nr", "id", "persnr", "personeelsnr", "personeelsnummer", "nummer", "employeeid", "employee_id"]:
             for c in df.columns:
-                if norm(c) == alt:
+                if norm(c) == norm(alt):
                     return c
 
+    # datum
     if w == "datum":
-        for alt in ["date", "datum gesprek", "gespreksdatum"]:
+        for alt in ["date", "datum gesprek", "gespreksdatum", "datum coaching", "coachingsdatum", "datum_coaching"]:
             for c in df.columns:
-                if norm(c) == alt:
+                if norm(c) == norm(alt):
                     return c
 
+    # info
     if w == "info":
-        for alt in ["informatie", "opmerking", "opmerkingen", "beschrijving", "details"]:
+        for alt in [
+            "informatie", "opmerking", "opmerkingen", "beschrijving", "details",
+            "thema", "onderwerp", "samenvatting", "actiepunten", "resultaat", "notities", "commentaar"
+        ]:
             for c in df.columns:
-                if norm(c) == alt:
+                if norm(c) == norm(alt):
                     return c
 
+    # naam
     if w in ["volledige naam", "chauffeurnaam", "naam"]:
         for alt in [
             "chauffeurnaam", "chauffeur naam", "naam", "medewerker", "werknemer", "chauffeur",
@@ -135,27 +152,15 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
 
 
 def _flatten_json_to_records(data):
-    """
-    Probeert eender welke JSON-structuur om te zetten naar een lijst van dict-records.
-    - lijst[dict] => ok
-    - dict met values dict => records met _key
-    - dict met key data/items => recurse
-    - dict (single) => 1 record
-    """
+    """Maak van eender welke JSON-structuur een lijst[dict]."""
     if data is None:
         return []
-
     if isinstance(data, list):
-        # filter enkel dicts
         return [x for x in data if isinstance(x, dict)]
-
     if isinstance(data, dict):
-        # vaak: {"data":[...]} of {"items":[...]}
         for k in ["data", "items", "results", "records"]:
             if k in data:
                 return _flatten_json_to_records(data[k])
-
-        # dict mapping id -> dict
         if data and all(isinstance(v, dict) for v in data.values()):
             out = []
             for key, val in data.items():
@@ -163,10 +168,7 @@ def _flatten_json_to_records(data):
                 rec["_key"] = str(key)
                 out.append(rec)
             return out
-
-        # single record
         return [data]
-
     return []
 
 
@@ -176,6 +178,7 @@ def render_html_table(
     col_widths: dict[str, str],
     max_height_px: int = 520,
 ) -> None:
+    """HTML tabel met echte tekstterugloop + automatische rijhoogte."""
     view = df[col_order].copy()
     for c in col_order:
         view[c] = view[c].fillna("").astype(str)
@@ -204,10 +207,12 @@ def render_html_table(
       </table>
     </div>
     """
-
     st.markdown(table_html, unsafe_allow_html=True)
 
 
+# ----------------------------
+# Loaders
+# ----------------------------
 @st.cache_data(show_spinner=False)
 def load_schade_df() -> pd.DataFrame:
     if not XLSM_PATH.exists():
@@ -306,12 +311,9 @@ def load_gesprekken_df() -> pd.DataFrame:
     if name_col and name_col != "Chauffeurnaam":
         df = df.rename(columns={name_col: "Chauffeurnaam"})
 
-    if "Datum" not in df.columns:
-        df["Datum"] = ""
-    if "Info" not in df.columns:
-        df["Info"] = ""
-    if "Chauffeurnaam" not in df.columns:
-        df["Chauffeurnaam"] = ""
+    for c in ["Datum", "Info", "Chauffeurnaam"]:
+        if c not in df.columns:
+            df[c] = ""
 
     df["nummer"] = df["nummer"].apply(clean_id)
     df["Datum"] = df["Datum"].apply(clean_text)
@@ -325,25 +327,85 @@ def load_gesprekken_df() -> pd.DataFrame:
     ).str.lower()
 
     df["_jaar"] = df["Datum"].apply(parse_year)
+    return df
 
+
+@st.cache_data(show_spinner=False)
+def load_coaching_df() -> pd.DataFrame:
+    """
+    Laadt Coachingslijst.xlsx -> tab 'Voltooide coachings'
+    en normaliseert naar: nummer, Chauffeurnaam, Datum, Info (+ _search, _jaar)
+    """
+    if not COACHINGS_XLSX_PATH.exists():
+        return pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search", "_jaar"])
+
+    xls = pd.ExcelFile(COACHINGS_XLSX_PATH)
+    if COACHINGS_SHEET_NAME not in xls.sheet_names:
+        raise ValueError(
+            f"Tabblad '{COACHINGS_SHEET_NAME}' niet gevonden in {COACHINGS_XLSX_PATH.name}. "
+            f"Gevonden tabs: {xls.sheet_names}"
+        )
+
+    df = pd.read_excel(COACHINGS_XLSX_PATH, sheet_name=COACHINGS_SHEET_NAME, dtype=str)
+
+    num_col = _find_col(df, "nummer") or _find_col(df, "personeelsnr")
+    name_col = _find_col(df, "Chauffeurnaam") or _find_col(df, "naam") or _find_col(df, "volledige naam")
+    date_col = _find_col(df, "Datum")
+    info_col = _find_col(df, "Info")
+
+    if num_col is None:
+        # we maken nummer leeg, maar blijven werken
+        df["nummer"] = ""
+        num_col = "nummer"
+    if num_col != "nummer":
+        df = df.rename(columns={num_col: "nummer"})
+
+    if name_col is None:
+        df["Chauffeurnaam"] = ""
+    elif name_col != "Chauffeurnaam":
+        df = df.rename(columns={name_col: "Chauffeurnaam"})
+
+    if date_col is None:
+        df["Datum"] = ""
+    elif date_col != "Datum":
+        df = df.rename(columns={date_col: "Datum"})
+
+    if info_col is None:
+        # als er geen duidelijke info-kolom is: probeer thema/onderwerp/opmerking te combineren
+        candidates = []
+        for c in df.columns:
+            if norm(c) in ["thema", "onderwerp", "opmerking", "opmerkingen", "samenvatting", "notities", "commentaar", "actiepunten", "resultaat"]:
+                candidates.append(c)
+        if candidates:
+            df["Info"] = df[candidates].fillna("").astype(str).agg(" | ".join, axis=1)
+        else:
+            df["Info"] = ""
+    elif info_col != "Info":
+        df = df.rename(columns={info_col: "Info"})
+
+    df["nummer"] = df["nummer"].apply(clean_id)
+    df["Chauffeurnaam"] = df["Chauffeurnaam"].apply(clean_text)
+    df["Datum"] = df["Datum"].apply(clean_text)
+    df["Info"] = df["Info"].apply(clean_text)
+
+    df["_search"] = (
+        df["nummer"].fillna("").astype(str) + " " +
+        df["Chauffeurnaam"].fillna("").astype(str) + " " +
+        df["Info"].fillna("").astype(str)
+    ).str.lower()
+
+    df["_jaar"] = df["Datum"].apply(parse_year)
     return df
 
 
 @st.cache_data(show_spinner=False)
 def load_personeelsfiche_df() -> pd.DataFrame:
-    """
-    Laadt personeelsficheGB.json en maakt een _search kolom om te matchen op:
-    - personeelsnr/nummer
-    - naam (als aanwezig)
-    - eventueel extra velden (optioneel)
-    """
     if not PERSONEEL_JSON_PATH.exists():
         return pd.DataFrame(columns=["_search"])
 
     try:
         data = json.loads(PERSONEEL_JSON_PATH.read_text(encoding="utf-8"))
     except Exception:
-        # fallback encoding
         data = json.loads(PERSONEEL_JSON_PATH.read_text())
 
     records = _flatten_json_to_records(data)
@@ -352,14 +414,12 @@ def load_personeelsfiche_df() -> pd.DataFrame:
 
     df = pd.DataFrame(records)
 
-    # probeer personeelsnr + naam te vinden
     id_col = _find_col(df, "personeelsnr") or _find_col(df, "nummer") or _find_col(df, "personeelsnummer")
     name_col = _find_col(df, "volledige naam") or _find_col(df, "naam") or _find_col(df, "chauffeurnaam")
 
     if id_col is None and "_key" in df.columns:
         id_col = "_key"
 
-    # maak uniforme weergavekolommen (optioneel)
     if id_col and id_col != "personeelsnr":
         df = df.rename(columns={id_col: "personeelsnr"})
         id_col = "personeelsnr"
@@ -377,28 +437,17 @@ def load_personeelsfiche_df() -> pd.DataFrame:
     df[id_col] = df[id_col].apply(clean_id)
     df[name_col] = df[name_col].apply(clean_text)
 
-    # _search: id + naam + (beperkt) extra info
     extra_cols = []
     for c in df.columns:
-        if c in ["_search"]:
+        if c in ["_search", id_col, name_col]:
             continue
-        if c in [id_col, name_col]:
-            continue
-        # neem enkele typische velden mee als ze bestaan (maakt zoeken rijker)
         if norm(c) in ["dienst", "afdeling", "team", "functie", "rol", "standplaats", "locatie"]:
             extra_cols.append(c)
 
-    parts = [
-        df[id_col].fillna("").astype(str),
-        df[name_col].fillna("").astype(str),
-    ]
+    parts = [df[id_col].fillna("").astype(str), df[name_col].fillna("").astype(str)]
     for c in extra_cols[:6]:
         parts.append(df[c].fillna("").astype(str))
 
-    df["_search"] = (" ".join(["{p}"] * len(parts))).format(
-        p=""  # dummy
-    )
-    # bovenstaande werkt niet; dus gewoon concat via pandas:
     df["_search"] = parts[0]
     for s in parts[1:]:
         df["_search"] = df["_search"].astype(str) + " " + s.astype(str)
@@ -453,7 +502,7 @@ st.markdown(
       }
       div[role="radiogroup"] > label:hover { background: rgba(255,255,255,.05); }
 
-      /* ---- HTML tabel (gesprekken) ---- */
+      /* ---- HTML tabel (wrap + sticky header) ---- */
       .ot-table-wrap{
         overflow: auto;
         border: 1px solid rgba(255,255,255,.08);
@@ -509,13 +558,19 @@ except Exception as e:
     st.warning(f"Gesprekkenbestand niet geladen: {e}")
     df_gesprekken = pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search", "_jaar"])
 
-df_personeel = load_personeelsfiche_df()
-if df_personeel.empty:
-    st.caption("ℹ️ personeelsficheGB.json niet gevonden of leeg (optioneel).")
+try:
+    df_coaching = load_coaching_df()
+except Exception as e:
+    st.warning(f"Coachingslijst niet geladen: {e}")
+    df_coaching = pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search", "_jaar"])
 
+df_personeel = load_personeelsfiche_df()
+
+# Jaarlijst uit schade + gesprekken + coaching
 years_schade = df_schade["_jaar"].dropna().unique().tolist() if "_jaar" in df_schade.columns else []
 years_gespr = df_gesprekken["_jaar"].dropna().unique().tolist() if "_jaar" in df_gesprekken.columns else []
-years = sorted({int(y) for y in (years_schade + years_gespr) if y is not None}, reverse=True)
+years_coach = df_coaching["_jaar"].dropna().unique().tolist() if "_jaar" in df_coaching.columns else []
+years = sorted({int(y) for y in (years_schade + years_gespr + years_coach) if y is not None}, reverse=True)
 
 # ----------------------------
 # Topbar
@@ -556,17 +611,10 @@ with c3:
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-df_schade_view = (
-    df_schade[df_schade["_jaar"] == int(year_choice)].copy()
-    if year_choice != "Alle"
-    else df_schade.copy()
-)
-
-df_gesprekken_view = (
-    df_gesprekken[df_gesprekken["_jaar"] == int(year_choice)].copy()
-    if year_choice != "Alle"
-    else df_gesprekken.copy()
-)
+# Jaarfilter views
+df_schade_view = df_schade[df_schade["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_schade.copy()
+df_gesprekken_view = df_gesprekken[df_gesprekken["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_gesprekken.copy()
+df_coaching_view = df_coaching[df_coaching["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_coaching.copy()
 
 # ----------------------------
 # Pages
@@ -575,7 +623,7 @@ if page == "Dashboard":
     st.subheader("Dashboard")
 
     q = st.text_input(
-        "Zoek op personeelsnr of naam (en voertuig in schade). In gesprekken zoekt hij op nummer/chauffeurnaam/info. In personeelsfiche zoekt hij op personeelsnr/naam.",
+        "Zoek op personeelsnr of naam. (Schade: nr/naam/voertuig) (Gesprekken: nr/naam/info) (Coaching: nr/naam/info) (Personeelsfiche: nr/naam)",
         placeholder="Typ om te zoeken…",
     ).strip().lower()
 
@@ -585,6 +633,7 @@ if page == "Dashboard":
 
     schade_hits = df_schade_view[df_schade_view["_search"].str.contains(re.escape(q), na=False)].copy()
     gesprekken_hits = df_gesprekken_view[df_gesprekken_view["_search"].str.contains(re.escape(q), na=False)].copy()
+    coaching_hits = df_coaching_view[df_coaching_view["_search"].str.contains(re.escape(q), na=False)].copy()
 
     personeels_hits = pd.DataFrame()
     if "_search" in df_personeel.columns and len(df_personeel) > 0:
@@ -595,32 +644,42 @@ if page == "Dashboard":
     if personeels_hits is None or len(personeels_hits) == 0:
         st.caption("Geen personeelsfiche gevonden voor deze zoekterm.")
     else:
-        # Toon eerst een kleine samenvattingstabel (indien kolommen bestaan)
-        summary_cols = []
-        for c in ["personeelsnr", "naam"]:
-            if c in personeels_hits.columns:
-                summary_cols.append(c)
-
+        summary_cols = [c for c in ["personeelsnr", "naam"] if c in personeels_hits.columns]
         if summary_cols:
-            st.dataframe(
-                personeels_hits[summary_cols].head(20),
-                use_container_width=True,
-                hide_index=True,
-            )
+            st.dataframe(personeels_hits[summary_cols].head(20), use_container_width=True, hide_index=True)
 
-        # Toon volledige record(s) leesbaar
         max_show = 10
         for i, (_, row) in enumerate(personeels_hits.head(max_show).iterrows(), start=1):
             pid = row.get("personeelsnr", "") if "personeelsnr" in personeels_hits.columns else ""
             nm = row.get("naam", "") if "naam" in personeels_hits.columns else ""
             title = f"{i}. {pid} — {nm}".strip(" —")
             with st.expander(title, expanded=(i == 1)):
-                # row is a Series -> dict
                 rec = row.drop(labels=["_search"], errors="ignore").to_dict()
                 st.json(rec)
 
         if len(personeels_hits) > max_show:
             st.caption(f"… en nog {len(personeels_hits) - max_show} extra matches.")
+
+    # --- Coaching ---
+    st.markdown("#### Voltooide coachings (Coachingslijst.xlsx)")
+    if len(coaching_hits) == 0:
+        st.caption("Geen coachings gevonden voor deze zoekterm.")
+    else:
+        cols = ["nummer", "Chauffeurnaam", "Datum", "Info"]
+        display_coach = coaching_hits[cols].copy()
+        display_coach["Datum"] = display_coach["Datum"].apply(format_ddmmyyyy)
+
+        render_html_table(
+            display_coach.head(300),
+            col_order=["nummer", "Chauffeurnaam", "Datum", "Info"],
+            col_widths={
+                "nummer": "90px",
+                "Chauffeurnaam": "180px",
+                "Datum": "120px",
+                "Info": "auto",
+            },
+            max_height_px=520,
+        )
 
     # --- Gesprekken ---
     st.markdown("#### Overzicht gesprekken (gesprekken per thema)")
@@ -681,7 +740,7 @@ elif page == "Locatie":
 
 elif page == "Coaching":
     st.subheader("Coaching")
-    st.info("Later koppeling met Coachingslijst.xlsx / gesprekken.")
+    st.info("Later uitwerken (filters/aggregaties op coaching + koppeling).")
 
 elif page == "Analyse":
     st.subheader("Analyse")
