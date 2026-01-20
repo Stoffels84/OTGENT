@@ -29,12 +29,14 @@ COACHINGS_SHEET_COACHING = "Coaching"
 PERSONEEL_JSON_PATH = APP_DIR / "personeelsficheGB.json"
 LOGO_PATH = APP_DIR / "logo.png"
 
-# NEW: external CSS
+# External CSS
 CSS_PATH = APP_DIR / "styles.css"
 
+# BRON columns to load (including teamcoach from BRON)
 SCHADE_COLS = [
     "personeelsnr",
     "volledige naam",
+    "teamcoach",
     "Datum",
     "Link",
     "Locatie",
@@ -323,12 +325,17 @@ def load_schade_df() -> pd.DataFrame:
         key = norm(col)
         if key in header_map:
             return header_map[key]
+
         if col == "bus/tram":
             for alt in ["bus/ tram", "bus / tram", "bus - tram"]:
                 if alt in header_map:
                     return header_map[alt]
         if col == "volledige naam":
             for alt in ["naam", "volledige naam.", "volledige naam "]:
+                if alt in header_map:
+                    return header_map[alt]
+        if col == "teamcoach":
+            for alt in ["team coach", "team_coach", "coach", "teamcoach "]:
                 if alt in header_map:
                     return header_map[alt]
         return None
@@ -339,6 +346,7 @@ def load_schade_df() -> pd.DataFrame:
     for r in ws.iter_rows(min_row=2, values_only=True):
         obj = {}
         any_val = False
+
         for col in SCHADE_COLS:
             i = idx_map.get(col)
             val = r[i] if (i is not None and i < len(r)) else None
@@ -361,6 +369,7 @@ def load_schade_df() -> pd.DataFrame:
 
     df["personeelsnr"] = df["personeelsnr"].apply(clean_id)
     df["volledige naam"] = df["volledige naam"].apply(clean_text)
+    df["teamcoach"] = df["teamcoach"].apply(clean_text)
     df["voertuig"] = df["voertuig"].apply(clean_text)
 
     df["_jaar"] = df["Datum"].apply(parse_year)
@@ -369,8 +378,11 @@ def load_schade_df() -> pd.DataFrame:
         + " "
         + df["volledige naam"].fillna("").astype(str)
         + " "
+        + df["teamcoach"].fillna("").astype(str)
+        + " "
         + df["voertuig"].fillna("").astype(str)
     ).str.lower()
+
     return df
 
 
@@ -598,7 +610,7 @@ def load_personeelsfiche_df() -> pd.DataFrame:
     for c in df.columns:
         if c in ["_search", id_col, name_col]:
             continue
-        if norm(c) in ["dienst", "afdeling", "team", "functie", "rol", "standplaats", "locatie"]:
+        if norm(c) in ["dienst", "afdeling", "team", "functie", "rol", "standplaats", "locatie", "teamcoach"]:
             extra_cols.append(c)
 
     parts = [df[id_col].fillna("").astype(str), df[name_col].fillna("").astype(str)]
@@ -616,8 +628,6 @@ def load_personeelsfiche_df() -> pd.DataFrame:
 # Streamlit setup
 # ----------------------------
 st.set_page_config(page_title="Analyse en rapportering OT Gent", layout="wide")
-
-# NEW: CSS from file
 load_css(CSS_PATH)
 
 
@@ -727,9 +737,8 @@ df_coach_voltooid_view = (
 if current_page == "dashboard":
     st.subheader("Dashboard")
 
-    # 1) Zoekvenster
     q = st.text_input(
-        "Zoek op personeelsnr of naam. (Schade: nr/naam/voertuig) (Geplande coaching: P-nr/naam/opmerkingen) "
+        "Zoek op personeelsnr of naam. (Schade: nr/naam/voertuig/teamcoach) (Geplande coaching: P-nr/naam/opmerkingen) "
         "(Voltooide coaching: nr/naam/info) (Gesprekken: nr/naam/info) (Personeelsfiche: nr/naam)",
         placeholder="Typ om te zoeken…",
     ).strip().lower()
@@ -738,7 +747,6 @@ if current_page == "dashboard":
         st.caption("Typ iets in het zoekveld om resultaten te zien.")
         st.stop()
 
-    # Hits
     schade_hits = df_schade_view[df_schade_view["_search"].str.contains(re.escape(q), na=False)].copy()
     gesprekken_hits = df_gesprekken_view[df_gesprekken_view["_search"].str.contains(re.escape(q), na=False)].copy()
     coach_volt_hits = df_coach_voltooid_view[df_coach_voltooid_view["_search"].str.contains(re.escape(q), na=False)].copy()
@@ -751,7 +759,7 @@ if current_page == "dashboard":
     if "_search" in df_personeel.columns and len(df_personeel) > 0:
         personeels_hits = df_personeel[df_personeel["_search"].str.contains(re.escape(q), na=False)].copy()
 
-    # 2) Personeelsfiche
+    # Personeelsfiche
     st.markdown("#### Personeelsfiche (personeelsficheGB.json)")
     if len(personeels_hits) == 0:
         st.caption("Geen personeelsfiche gevonden voor deze zoekterm.")
@@ -772,31 +780,36 @@ if current_page == "dashboard":
         if len(personeels_hits) > max_show:
             st.caption(f"… en nog {len(personeels_hits) - max_show} extra matches.")
 
-    # 3) Schade
+    # Schade
     st.markdown("#### Schade (BRON)")
     if len(schade_hits) == 0:
         st.caption("Geen schadegevallen gevonden voor deze zoekterm.")
     else:
-        show = schade_hits[SCHADE_COLS].head(500).copy()
-        show["Datum"] = show["Datum"].apply(format_ddmmyyyy)
+        show_cols = [c for c in SCHADE_COLS if c in schade_hits.columns]
+        show = schade_hits[show_cols].head(500).copy()
+        if "Datum" in show.columns:
+            show["Datum"] = show["Datum"].apply(format_ddmmyyyy)
+
+        column_config = {
+            "personeelsnr": st.column_config.TextColumn("personeelsnr", width="small"),
+            "volledige naam": st.column_config.TextColumn("volledige naam", width="medium"),
+            "teamcoach": st.column_config.TextColumn("teamcoach", width="medium"),
+            "Datum": st.column_config.TextColumn("Datum", width="small"),
+            "Link": st.column_config.LinkColumn("Open EAF", display_text="Open EAF", width="small"),
+            "Locatie": st.column_config.TextColumn("Locatie", width="medium"),
+            "voertuig": st.column_config.TextColumn("voertuig", width="medium"),
+            "bus/tram": st.column_config.TextColumn("bus/tram", width="small"),
+            "type": st.column_config.TextColumn("type", width="small"),
+        }
+
         st.dataframe(
             show,
             use_container_width=True,
             hide_index=True,
-            column_config={
-                "personeelsnr": st.column_config.TextColumn("personeelsnr", width="small"),
-                "volledige naam": st.column_config.TextColumn("volledige naam", width="medium"),
-                "Datum": st.column_config.TextColumn("Datum", width="small"),
-                # CHANGED: show constant label "Open EAF" while keeping URL clickable
-                "Link": st.column_config.LinkColumn("Open EAF", display_text="Open EAF", width="small"),
-                "Locatie": st.column_config.TextColumn("Locatie", width="medium"),
-                "voertuig": st.column_config.TextColumn("voertuig", width="medium"),
-                "bus/tram": st.column_config.TextColumn("bus/tram", width="small"),
-                "type": st.column_config.TextColumn("type", width="small"),
-            },
+            column_config=column_config,
         )
 
-    # 4) Geplande coaching
+    # Geplande coaching
     st.markdown("#### Geplande coaching (Coachingslijst.xlsx → tabblad 'Coaching')")
     if len(coach_tab_hits) == 0:
         st.caption("Geen geplande coaching-info gevonden voor deze zoekterm.")
@@ -809,7 +822,7 @@ if current_page == "dashboard":
             max_height_px=520,
         )
 
-    # 5) Voltooide coaching
+    # Voltooide coaching
     st.markdown("#### Voltooide coaching (Coachingslijst.xlsx → tabblad 'Voltooide coachings')")
     if len(coach_volt_hits) == 0:
         st.caption("Geen voltooide coachings gevonden voor deze zoekterm.")
@@ -823,7 +836,7 @@ if current_page == "dashboard":
             max_height_px=520,
         )
 
-    # 6) Overzicht gesprekken
+    # Overzicht gesprekken
     st.markdown("#### Overzicht gesprekken (gesprekken per thema)")
     if len(gesprekken_hits) == 0:
         st.caption("Geen gesprekken gevonden voor deze zoekterm.")
@@ -839,7 +852,73 @@ if current_page == "dashboard":
 
 elif current_page == "chauffeur":
     st.subheader("Chauffeur")
-    st.info("Later uitwerken (filters/aggregaties op BRON).")
+
+    if df_schade_view.empty:
+        st.info("Geen schadegegevens beschikbaar voor deze selectie.")
+        st.stop()
+
+    # Controls
+    top_n = st.selectbox("Top", [10, 20, 50, 100], index=1)
+    min_aantal = st.slider("Minimum aantal schadegevallen", 1, 20, 1)
+
+    # ---- Top chauffeurs ----
+    st.markdown("### 🚗 Chauffeurs met meeste schadegevallen")
+
+    top_chauffeurs = (
+        df_schade_view
+        .groupby(["personeelsnr", "volledige naam"], dropna=False)
+        .size()
+        .reset_index(name="Aantal schadegevallen")
+        .sort_values("Aantal schadegevallen", ascending=False)
+    )
+
+    top_chauffeurs_filtered = top_chauffeurs[top_chauffeurs["Aantal schadegevallen"] >= min_aantal].head(top_n)
+
+    st.dataframe(
+        top_chauffeurs_filtered,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "personeelsnr": st.column_config.TextColumn("Personeelsnr", width="small"),
+            "volledige naam": st.column_config.TextColumn("Chauffeur", width="medium"),
+            "Aantal schadegevallen": st.column_config.NumberColumn("Aantal", width="small"),
+        },
+    )
+
+    if len(top_chauffeurs_filtered) > 0:
+        st.bar_chart(top_chauffeurs_filtered.set_index("volledige naam")["Aantal schadegevallen"])
+    else:
+        st.caption("Geen chauffeurs binnen deze filters.")
+
+    # ---- Teamcoach ----
+    st.markdown("### 👥 Teamcoach: aantal schadegevallen")
+
+    if "teamcoach" not in df_schade_view.columns:
+        st.warning("Kolom 'teamcoach' niet gevonden in BRON.")
+        st.stop()
+
+    schade_per_teamcoach = (
+        df_schade_view
+        .assign(teamcoach=df_schade_view["teamcoach"].fillna("").astype(str).str.strip())
+        .replace({"teamcoach": {"": "(onbekend)"}})
+        .groupby("teamcoach", dropna=False)
+        .size()
+        .reset_index(name="Aantal schadegevallen")
+        .sort_values("Aantal schadegevallen", ascending=False)
+    )
+
+    st.dataframe(
+        schade_per_teamcoach,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "teamcoach": st.column_config.TextColumn("Teamcoach", width="medium"),
+            "Aantal schadegevallen": st.column_config.NumberColumn("Aantal", width="small"),
+        },
+    )
+
+    if len(schade_per_teamcoach) > 0:
+        st.bar_chart(schade_per_teamcoach.set_index("teamcoach")["Aantal schadegevallen"])
 
 elif current_page == "voertuig":
     st.subheader("Voertuig")
