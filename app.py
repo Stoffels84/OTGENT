@@ -1042,12 +1042,16 @@ elif current_page == "voertuig":
         tmp.groupby("voertuig", dropna=False)
         .agg(
             BusTram=("bus/tram", _mode_or_empty),
-            LaatsteDatum=("Datum", lambda x: pd.to_datetime(x.astype(str), dayfirst=True, errors="coerce").max()),
+            LaatsteDatum=("Datum", lambda x: pd.to_datetime(x, dayfirst=True, errors="coerce").max()),
             TopLocatie=("Locatie", _mode_or_empty),
         )
         .reset_index()
     )
+    
+    # Forceer datetime dtype => .dt werkt altijd
+    extra["LaatsteDatum"] = pd.to_datetime(extra["LaatsteDatum"], errors="coerce")
     extra["LaatsteDatum"] = extra["LaatsteDatum"].dt.strftime("%d-%m-%Y").fillna("")
+
 
     top_table = voertuigen_counts.merge(extra, on="voertuig", how="left").head(top_n)
 
