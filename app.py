@@ -4,12 +4,16 @@ import json
 import base64
 import html
 import datetime as dt
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 import openpyxl
 import bcrypt
+
+from pathlib import Path
+
+APP_DIR = Path(__file__).parent
+
 
 TOEGESTAAN_XLSX_PATH = APP_DIR / "toegestaan_gebruik.xlsx"
 
