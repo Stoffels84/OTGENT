@@ -874,7 +874,7 @@ if current_page == "dashboard":
         personeels_hits = df_personeel[df_personeel["_search"].str.contains(re.escape(q), na=False)].copy()
 
     # Personeelsfiche
-    st.markdown("#### Personeelsfiche (personeelsficheGB.json)")
+    st.markdown("#### Personeelsfiche")
     if len(personeels_hits) == 0:
         st.caption("Geen personeelsfiche gevonden voor deze zoekterm.")
     else:
