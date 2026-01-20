@@ -1322,8 +1322,6 @@ elif current_page == "locatie":
         st.caption("Geen locaties binnen deze filters.")
         st.stop()
 
-    st.bar_chart(top_table.set_index("Locatie")["Aantal"])
-
     st.divider()
 
     # ----------------------------
