@@ -39,6 +39,15 @@ SCHADE_COLS = [
     "type",
 ]
 
+PAGES = [
+    ("dashboard", "Dashboard"),
+    ("chauffeur", "Chauffeur"),
+    ("voertuig", "Voertuig"),
+    ("locatie", "Locatie"),
+    ("coaching", "Coaching"),
+    ("analyse", "Analyse"),
+]
+
 
 # ----------------------------
 # Helpers
@@ -112,12 +121,10 @@ def img_to_data_uri(path: Path) -> str:
 def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
     w = norm(wanted)
 
-    # exact match
     for c in df.columns:
         if norm(c) == w:
             return c
 
-    # id/nummer
     if w in ["nummer", "personeelsnr", "personeelsnummer"]:
         for alt in [
             "nr", "id", "persnr", "personeelsnr", "personeelsnummer", "nummer",
@@ -127,14 +134,12 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
                 if norm(c) == norm(alt):
                     return c
 
-    # datum
     if w == "datum":
         for alt in ["date", "datum gesprek", "gespreksdatum", "datum coaching", "coachingsdatum"]:
             for c in df.columns:
                 if norm(c) == norm(alt):
                     return c
 
-    # info/notes
     if w == "info":
         for alt in [
             "informatie", "opmerking", "opmerkingen", "beschrijving", "details",
@@ -144,7 +149,6 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
                 if norm(c) == norm(alt):
                     return c
 
-    # naam
     if w in ["volledige naam", "chauffeurnaam", "naam"]:
         for alt in [
             "chauffeurnaam", "chauffeur naam", "naam", "medewerker", "werknemer", "chauffeur",
@@ -158,7 +162,6 @@ def _find_col(df: pd.DataFrame, wanted: str) -> str | None:
 
 
 def _flatten_json_to_records(data):
-    """Maak van eender welke JSON-structuur een lijst[dict]."""
     if data is None:
         return []
     if isinstance(data, list):
@@ -184,7 +187,6 @@ def render_html_table(
     col_widths: dict[str, str],
     max_height_px: int = 520,
 ) -> None:
-    """HTML tabel met echte tekstterugloop + automatische rijhoogte."""
     view = df[col_order].copy()
     for c in col_order:
         view[c] = view[c].fillna("").astype(str)
@@ -205,37 +207,37 @@ def render_html_table(
         trs.append("<tr>" + "".join(tds) + "</tr>")
     tbody = "".join(trs)
 
-    table_html = f"""
-    <div class="ot-table-wrap" style="max-height:{max_height_px}px;">
-      <table class="ot-table">
-        <thead>{thead}</thead>
-        <tbody>{tbody}</tbody>
-      </table>
-    </div>
-    """
-    st.markdown(table_html, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="ot-table-wrap" style="max-height:{max_height_px}px;">
+          <table class="ot-table">
+            <thead>{thead}</thead>
+            <tbody>{tbody}</tbody>
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ----------------------------
-# Query param helpers (tabs)
+# Navigation state
 # ----------------------------
-def get_query_param(name: str, default: str) -> str:
+def get_page(default="dashboard") -> str:
     try:
-        # new API
-        v = st.query_params.get(name, default)
+        v = st.query_params.get("page", default)
         if isinstance(v, list):
-            return v[0] if v else default
-        return v
+            v = v[0] if v else default
+        v = str(v).strip().lower()
     except Exception:
-        # legacy
-        qp = st.experimental_get_query_params()
-        v = qp.get(name, [default])
-        return v[0] if v else default
+        v = default
+    valid = {pid for pid, _ in PAGES}
+    return v if v in valid else default
 
 
-def make_tab_href(page_id: str) -> str:
-    # we keep it simple: only page param
-    return f"?page={page_id}"
+def set_page(page_id: str) -> None:
+    st.query_params["page"] = page_id
+    st.rerun()
 
 
 # ----------------------------
@@ -304,7 +306,6 @@ def load_schade_df() -> pd.DataFrame:
         df["volledige naam"].fillna("").astype(str) + " " +
         df["voertuig"].fillna("").astype(str)
     ).str.lower()
-
     return df
 
 
@@ -353,17 +354,12 @@ def load_gesprekken_df() -> pd.DataFrame:
         df["Chauffeurnaam"].fillna("").astype(str) + " " +
         df["Info"].fillna("").astype(str)
     ).str.lower()
-
     df["_jaar"] = df["Datum"].apply(parse_year)
     return df
 
 
 @st.cache_data(show_spinner=False)
 def load_coaching_df() -> pd.DataFrame:
-    """
-    Laadt Coachingslijst.xlsx -> tab 'Voltooide coachings'
-    en normaliseert naar: nummer, Chauffeurnaam, Datum, Info (+ _search, _jaar)
-    """
     if not COACHINGS_XLSX_PATH.exists():
         return pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search", "_jaar"])
 
@@ -422,7 +418,6 @@ def load_coaching_df() -> pd.DataFrame:
         df["Chauffeurnaam"].fillna("").astype(str) + " " +
         df["Info"].fillna("").astype(str)
     ).str.lower()
-
     df["_jaar"] = df["Datum"].apply(parse_year)
     return df
 
@@ -481,43 +476,14 @@ def load_personeelsfiche_df() -> pd.DataFrame:
     for s in parts[1:]:
         df["_search"] = df["_search"].astype(str) + " " + s.astype(str)
     df["_search"] = df["_search"].str.lower()
-
     return df
 
 
 # ----------------------------
-# Streamlit setup
+# Streamlit setup / CSS
 # ----------------------------
 st.set_page_config(page_title="Analyse en rapportering OT Gent", layout="wide")
 
-# Sidebar: cache clear
-with st.sidebar:
-    st.markdown("### ⚙️ Beheer")
-    if st.button("🧹 Cache wissen & opnieuw laden", use_container_width=True):
-        st.cache_data.clear()
-        try:
-            st.cache_resource.clear()
-        except Exception:
-            pass
-        st.rerun()
-    st.caption("Tip: gebruik dit als je Excel/JSON bestanden aangepast hebt.")
-
-# Pages / Tabs
-PAGES = [
-    ("dashboard", "Dashboard"),
-    ("chauffeur", "Chauffeur"),
-    ("voertuig", "Voertuig"),
-    ("locatie", "Locatie"),
-    ("coaching", "Coaching"),
-    ("analyse", "Analyse"),
-]
-
-current_page = get_query_param("page", "dashboard").strip().lower()
-valid_pages = {pid for pid, _ in PAGES}
-if current_page not in valid_pages:
-    current_page = "dashboard"
-
-# Styles (topbar + custom tabs + html tables)
 st.markdown(
     """
     <style>
@@ -526,12 +492,7 @@ st.markdown(
                     radial-gradient(900px 600px at 90% 20%, rgba(120,80,255,.10), transparent 55%),
                     #0b0f14;
       }
-
-      /* Sidebar ook in theme */
-      section[data-testid="stSidebar"]{
-        background: rgba(10,14,20,.92);
-        border-right: 1px solid rgba(255,255,255,.06);
-      }
+      section[data-testid="stSidebar"] { display: none; }
 
       .ot-topbar {
         position: sticky;
@@ -553,55 +514,42 @@ st.markdown(
       .ot-title { font-size: 22px; font-weight: 800; color: #e6edf3; line-height: 1.15; }
       .ot-sub   { font-size: 14px; color: #9aa4b2; margin-top: 4px; }
 
-      .block-container { padding-top: 0.5rem; }
-
-      /* Custom tabbar */
-      .ot-tabs {
-        display: flex;
-        gap: 10px;
-        justify-content: flex-end;
-        align-items: center;
-        flex-wrap: wrap;
-        margin-top: 2px;
+      /* tab buttons (Streamlit) */
+      div[data-testid="stHorizontalBlock"] .ot-tab-btn button{
+        border-radius: 999px !important;
+        padding: 10px 14px !important;
+        border: 1px solid rgba(255,255,255,.10) !important;
+        background: rgba(255,255,255,.02) !important;
+        color: #cbd5e1 !important;
+        font-weight: 700 !important;
+        transition: all .15s ease !important;
       }
-      .ot-tab {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 14px;
-        border-radius: 999px;
-        border: 1px solid rgba(255,255,255,.10);
-        background: rgba(255,255,255,.02);
-        color: #cbd5e1;
-        text-decoration: none !important;
-        font-weight: 600;
-        font-size: 13px;
-        transition: all .15s ease;
+      div[data-testid="stHorizontalBlock"] .ot-tab-btn button:hover{
+        background: rgba(255,255,255,.05) !important;
+        border-color: rgba(255,255,255,.18) !important;
+        transform: translateY(-1px) !important;
       }
-      .ot-tab:hover {
-        background: rgba(255,255,255,.05);
-        border-color: rgba(255,255,255,.18);
-        transform: translateY(-1px);
-      }
-      .ot-tab.active {
-        color: #e6edf3;
-        background: rgba(74,163,255,.14);
-        border-color: rgba(74,163,255,.35);
+      /* active page button */
+      div[data-testid="stHorizontalBlock"] .ot-tab-btn.active button{
+        color: #e6edf3 !important;
+        background: rgba(74,163,255,.14) !important;
+        border-color: rgba(74,163,255,.35) !important;
         box-shadow: 0 0 0 1px rgba(74,163,255,.18) inset,
                     0 10px 30px rgba(74,163,255,.10);
       }
-      .ot-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
+      /* little dot */
+      div[data-testid="stHorizontalBlock"] .ot-tab-dot{
+        display:inline-block;
+        width:8px;height:8px;border-radius:999px;
         background: rgba(255,255,255,.25);
+        margin-right:8px;
       }
-      .ot-tab.active .ot-dot {
+      div[data-testid="stHorizontalBlock"] .ot-tab-btn.active .ot-tab-dot{
         background: rgba(255,80,80,.95);
         box-shadow: 0 0 0 4px rgba(255,80,80,.18);
       }
 
-      /* ---- HTML tabel (wrap + sticky header) ---- */
+      /* ---- HTML table (wrap + sticky header) ---- */
       .ot-table-wrap{
         overflow: auto;
         border: 1px solid rgba(255,255,255,.08);
@@ -634,13 +582,12 @@ st.markdown(
         overflow-wrap: anywhere;
         word-break: break-word;
       }
-      table.ot-table tr:last-child td{
-        border-bottom: none;
-      }
+      table.ot-table tr:last-child td{ border-bottom: none; }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
 
 # ----------------------------
 # Load data
@@ -665,18 +612,19 @@ except Exception as e:
 
 df_personeel = load_personeelsfiche_df()
 
-# Jaarlijst uit schade + gesprekken + coaching
 years_schade = df_schade["_jaar"].dropna().unique().tolist() if "_jaar" in df_schade.columns else []
 years_gespr = df_gesprekken["_jaar"].dropna().unique().tolist() if "_jaar" in df_gesprekken.columns else []
 years_coach = df_coaching["_jaar"].dropna().unique().tolist() if "_jaar" in df_coaching.columns else []
 years = sorted({int(y) for y in (years_schade + years_gespr + years_coach) if y is not None}, reverse=True)
+
+current_page = get_page("dashboard")
 
 # ----------------------------
 # Topbar
 # ----------------------------
 st.markdown('<div class="ot-topbar">', unsafe_allow_html=True)
 
-c1, c2, c3 = st.columns([2.3, 1.2, 3.5])
+c1, c2, c3 = st.columns([2.3, 1.2, 3.5], vertical_alignment="center")
 
 with c1:
     logo_html = (
@@ -701,20 +649,41 @@ with c2:
     year_choice = st.selectbox("Jaar", ["Alle"] + [str(y) for y in years], index=0)
 
 with c3:
-    # Custom tabs (HTML)
-    tabs_html = ['<div class="ot-tabs">']
-    for pid, label in PAGES:
-        active = "active" if pid == current_page else ""
-        href = make_tab_href(pid)
-        tabs_html.append(
-            f'<a class="ot-tab {active}" href="{href}"><span class="ot-dot"></span>{html.escape(label)}</a>'
-        )
-    tabs_html.append("</div>")
-    st.markdown("".join(tabs_html), unsafe_allow_html=True)
+    # tabs + refresh button all in streamlit (no links => no new tabs possible)
+    tab_cols = st.columns([1, 1, 1, 1, 1, 1, 0.95], gap="small")
+
+    for (pid, label), col in zip(PAGES, tab_cols[:6]):
+        with col:
+            active = (pid == current_page)
+            # wrapper for CSS "active"
+            st.markdown(
+                f'<div class="ot-tab-btn {"active" if active else ""}">',
+                unsafe_allow_html=True,
+            )
+            if st.button(f"{label}", key=f"tab_{pid}", use_container_width=True):
+                set_page(pid)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    with tab_cols[6]:
+        # Refresh/cache clear
+        st.markdown('<div class="ot-tab-btn">', unsafe_allow_html=True)
+        if st.button("↻ Herladen", key="reload_btn", use_container_width=True):
+            st.cache_data.clear()
+            try:
+                st.cache_resource.clear()
+            except Exception:
+                pass
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# add red dot to active tab buttons via small HTML above buttons (optional)
+# (kept minimal: dots removed to keep buttons stable)
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# Jaarfilter views
+# ----------------------------
+# Filters (year)
+# ----------------------------
 df_schade_view = df_schade[df_schade["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_schade.copy()
 df_gesprekken_view = df_gesprekken[df_gesprekken["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_gesprekken.copy()
 df_coaching_view = df_coaching[df_coaching["_jaar"] == int(year_choice)].copy() if year_choice != "Alle" else df_coaching.copy()
@@ -727,7 +696,8 @@ if current_page == "dashboard":
     st.subheader("Dashboard")
 
     q = st.text_input(
-        "Zoek op personeelsnr of naam. (Schade: nr/naam/voertuig) (Gesprekken: nr/naam/info) (Coaching: nr/naam/info) (Personeelsfiche: nr/naam)",
+        "Zoek op personeelsnr of naam. (Schade: nr/naam/voertuig) (Gesprekken: nr/naam/info) "
+        "(Coaching: nr/naam/info) (Personeelsfiche: nr/naam)",
         placeholder="Typ om te zoeken…",
     ).strip().lower()
 
@@ -754,8 +724,8 @@ if current_page == "dashboard":
 
         max_show = 10
         for i, (_, row) in enumerate(personeels_hits.head(max_show).iterrows(), start=1):
-            pid = row.get("personeelsnr", "") if "personeelsnr" in personeels_hits.columns else ""
-            nm = row.get("naam", "") if "naam" in personeels_hits.columns else ""
+            pid = row.get("personeelsnr", "")
+            nm = row.get("naam", "")
             title = f"{i}. {pid} — {nm}".strip(" —")
             with st.expander(title, expanded=(i == 1)):
                 rec = row.drop(labels=["_search"], errors="ignore").to_dict()
@@ -776,12 +746,7 @@ if current_page == "dashboard":
         render_html_table(
             display_coach.head(300),
             col_order=["nummer", "Chauffeurnaam", "Datum", "Info"],
-            col_widths={
-                "nummer": "90px",
-                "Chauffeurnaam": "180px",
-                "Datum": "120px",
-                "Info": "auto",
-            },
+            col_widths={"nummer": "90px", "Chauffeurnaam": "180px", "Datum": "120px", "Info": "auto"},
             max_height_px=520,
         )
 
@@ -797,12 +762,7 @@ if current_page == "dashboard":
         render_html_table(
             display_gesprekken.head(300),
             col_order=["nummer", "Chauffeurnaam", "Datum", "Info"],
-            col_widths={
-                "nummer": "90px",
-                "Chauffeurnaam": "180px",
-                "Datum": "120px",
-                "Info": "auto",
-            },
+            col_widths={"nummer": "90px", "Chauffeurnaam": "180px", "Datum": "120px", "Info": "auto"},
             max_height_px=520,
         )
 
