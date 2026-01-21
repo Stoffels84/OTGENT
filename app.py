@@ -1617,8 +1617,6 @@ elif current_page == "analyse":
         },
     )
 
-    st.bar_chart(per_type.head(10).set_index("type")["Aantal"])
-
     st.divider()
 
     # ----------------------------
