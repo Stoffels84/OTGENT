@@ -411,23 +411,9 @@ def load_schade_df() -> pd.DataFrame:
     if not XLSM_PATH.exists():
         raise FileNotFoundError(f"Bestand niet gevonden: {XLSM_PATH.name} (zet dit naast app.py)")
 
-    def load_workbook_from_bytes(xlsm_bytes: bytes):
-    """
-    Open een Excel bestand vanuit bytes, zonder dat het fysiek op disk moet staan.
-    We zetten keep_pivot_tables=False om openpyxl pivot-cache problemen te omzeilen.
-    """
-    bio = io.BytesIO(xlsm_bytes)
-    try:
-        return openpyxl.load_workbook(
-            bio,
-            data_only=True,
-            keep_vba=True,
-            keep_pivot_tables=False,  # <-- BELANGRIJK
-        )
-    except TypeError:
-        # Voor oudere openpyxl versies die keep_pivot_tables niet kennen
-        return openpyxl.load_workbook(bio, data_only=True, keep_vba=True)
-
+    wb = openpyxl.load_workbook(XLSM_PATH, data_only=True, keep_vba=True)
+    if SCHADESHEET not in wb.sheetnames:
+        raise ValueError(f"Tabblad '{SCHADESHEET}' niet gevonden in {XLSM_PATH.name}")
 
     ws = wb[SCHADESHEET]
 
