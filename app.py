@@ -9,6 +9,10 @@ import pandas as pd
 import streamlit as st
 import openpyxl
 import bcrypt
+import io
+import requests
+import tempfile
+
 
 from pathlib import Path
 
@@ -120,6 +124,9 @@ def logout_button() -> None:
 # Paths / Config
 # ----------------------------
 APP_DIR = Path(__file__).parent
+
+GITHUB_RAW_XLSM_URL = "https://raw.githubusercontent.com/Stoffels84/OTGENT/main/schade%20met%20macro.xlsm"
+
 
 XLSM_PATH = APP_DIR / "schade met macro.xlsm"
 SCHADESHEET = "BRON"
@@ -406,12 +413,55 @@ def set_page(page_id: str) -> None:
 # ----------------------------
 # Loaders
 # ----------------------------
-@st.cache_data(show_spinner=False)
-def load_schade_df() -> pd.DataFrame:
-    if not XLSM_PATH.exists():
-        raise FileNotFoundError(f"Bestand niet gevonden: {XLSM_PATH.name} (zet dit naast app.py)")
 
-    wb = openpyxl.load_workbook(XLSM_PATH, data_only=True, keep_vba=True)
+@st.cache_data(show_spinner=False, ttl=60)
+def fetch_github_file_bytes(url: str) -> bytes:
+    """
+    Download bestand (bytes) via GitHub RAW.
+    ttl=60: max 60 sec dezelfde versie cachen; daarna automatisch opnieuw ophalen.
+    """
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    return r.content
+
+
+def load_workbook_from_bytes(xlsm_bytes: bytes):
+    """
+    Open een Excel bestand vanuit bytes, zonder dat het fysiek op disk moet staan.
+    """
+    bio = io.BytesIO(xlsm_bytes)
+    return openpyxl.load_workbook(bio, data_only=True, keep_vba=True)
+
+@st.cache_data(show_spinner=False, ttl=60)
+def load_schade_df() -> pd.DataFrame:
+    """
+    Leest schadebestand bij voorkeur live uit GitHub RAW.
+    Fallback: als GitHub even niet bereikbaar is, probeer lokaal XLSM_PATH.
+    """
+    wb = None
+    last_err = None
+
+    # 1) Probeer via GitHub RAW (altijd meest recente versie)
+    try:
+        xlsm_bytes = fetch_github_file_bytes(GITHUB_RAW_XLSM_URL)
+        # snelle sanity check: xlsm is een zip => begint met PK
+        if not xlsm_bytes.startswith(b"PK"):
+            raise ValueError("GitHub RAW download lijkt geen geldig XLSM (verwacht PK-zip header).")
+        wb = load_workbook_from_bytes(xlsm_bytes)
+    except Exception as e:
+        last_err = e
+        wb = None
+
+    # 2) Fallback naar lokaal bestand (als aanwezig)
+    if wb is None:
+        if not XLSM_PATH.exists():
+            raise FileNotFoundError(
+                f"Schadebestand niet gevonden. GitHub RAW faalde met: {last_err}. "
+                f"En lokaal bestaat het bestand niet: {XLSM_PATH.name}"
+            )
+        wb = openpyxl.load_workbook(XLSM_PATH, data_only=True, keep_vba=True)
+
+    # 3) Verwerking zoals je al had
     if SCHADESHEET not in wb.sheetnames:
         raise ValueError(f"Tabblad '{SCHADESHEET}' niet gevonden in {XLSM_PATH.name}")
 
@@ -489,6 +539,7 @@ def load_schade_df() -> pd.DataFrame:
     ).str.lower()
 
     return df
+
 
 
 @st.cache_data(show_spinner=False)
