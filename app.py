@@ -1819,37 +1819,6 @@ elif current_page == "coaching":
     # ----------------------------
     left, right = st.columns([1.25, 1.0], gap="large")
 
-    with left:
-        st.markdown("### 📋 Werkqueue: Geplande coachings")
-
-        show_cols = ["nummer", "Chauffeurnaam", "Info", "Schade (jaar)", "Laatste schade datum", "Top locatie", "Top type"]
-        show_cols = [c for c in show_cols if c in filtered.columns]
-
-        st.dataframe(
-            filtered[show_cols].head(500),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "nummer": st.column_config.TextColumn("P-nr", width="small"),
-                "Chauffeurnaam": st.column_config.TextColumn("Naam", width="medium"),
-                "Info": st.column_config.TextColumn("Opmerking", width="large"),
-                "Schade (jaar)": st.column_config.NumberColumn("Schade (jaar)", width="small"),
-                "Laatste schade datum": st.column_config.TextColumn("Laatste schade", width="small"),
-                "Top locatie": st.column_config.TextColumn("Top locatie", width="medium"),
-                "Top type": st.column_config.TextColumn("Top type", width="medium"),
-            },
-        )
-
-        # Export
-        csv_bytes = filtered[show_cols].to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "⬇️ Download werkqueue (CSV)",
-            data=csv_bytes,
-            file_name="werkqueue_coaching.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-
     with right:
         st.markdown("### 🧾 Dossier: gekozen chauffeur")
 
