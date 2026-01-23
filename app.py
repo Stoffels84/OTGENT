@@ -1186,10 +1186,6 @@ elif current_page == "voertuig":
         st.caption("Geen voertuigen binnen deze filters.")
         st.stop()
 
-    # Bar chart (hoog -> laag)
-    chart_df = top_table.set_index("voertuig")["Aantal"]
-    st.bar_chart(chart_df)
-
     st.divider()
 
     # ----------------------------
