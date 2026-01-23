@@ -1673,178 +1673,177 @@ elif current_page == "analyse":
 
 
             
-    elif current_page == "coaching":
-        st.subheader("Coaching — kandidaten (>= 3 schades, niet gepland/niet voltooid)")
-    
-        # ----------------------------
-        # Helpers
-        # ----------------------------
-        def _to_dt(v):
-            return pd.to_datetime(v, dayfirst=True, errors="coerce")
-    
-        # ----------------------------
-        # 1) Verzamel te EXCLUDEREN personeelsnrs:
-        # - gepland (df_coach_tab)  -> altijd, geen jaar
-        # - voltooid (df_coach_voltooid) -> best ALLES (niet enkel view), zodat je niemand opnieuw pakt
-        # ----------------------------
-        exclude_ids = set()
-    
-        # Geplande coaching (tab "Coaching")
-        planned = df_coach_tab.copy() if df_coach_tab is not None else pd.DataFrame(columns=["nummer"])
-        if "nummer" in planned.columns:
-            planned["nummer"] = planned["nummer"].apply(clean_id)
-            exclude_ids |= set(planned["nummer"].dropna().astype(str))
-        else:
-            planned["nummer"] = ""
-    
-        # Voltooide coaching (ALLES, niet year_view)
-        done_all = df_coach_voltooid.copy() if df_coach_voltooid is not None else pd.DataFrame(columns=["nummer"])
-        if "nummer" in done_all.columns:
-            done_all["nummer"] = done_all["nummer"].apply(clean_id)
-            exclude_ids |= set(done_all["nummer"].dropna().astype(str))
-        else:
-            done_all["nummer"] = ""
-    
-        exclude_ids.discard("")  # veiligheid
-    
-        # ----------------------------
-        # 2) Bouw schade-statistieken op basis van gekozen jaarfilter (df_schade_view)
-        # ----------------------------
-        schade = df_schade_view.copy()
-    
-        if schade.empty:
-            st.info("Geen schadegegevens beschikbaar voor deze selectie.")
-            st.stop()
-    
-        schade["personeelsnr"] = schade["personeelsnr"].apply(clean_id)
-        schade["volledige naam"] = schade["volledige naam"].fillna("").astype(str).str.strip()
-        schade["Datum_dt"] = schade["Datum"].apply(_to_dt)
-    
-        # Normaliseer enkele velden (optioneel)
-        schade["Locatie"] = schade["Locatie"].fillna("").astype(str).str.strip().replace("", "(onbekend)")
-        schade["type"] = schade["type"].fillna("").astype(str).str.strip().replace("", "(onbekend)")
-    
-        # Aantal schades per chauffeur (binnen jaarfilter)
-        per_driver = (
-            schade[schade["personeelsnr"] != ""]
-            .groupby(["personeelsnr", "volledige naam"], dropna=False)
-            .size()
-            .reset_index(name="Schades (jaar)")
-            .sort_values("Schades (jaar)", ascending=False)
-        )
-    
-        # ----------------------------
-        # 3) Filter: >= 3 schades EN niet in exclude_ids
-        # ----------------------------
-        min_schades = st.slider("Minimum schades (jaar)", 3, 50, 3)
-        kandidaten = per_driver[per_driver["Schades (jaar)"] >= min_schades].copy()
-        kandidaten = kandidaten[~kandidaten["personeelsnr"].isin(exclude_ids)].copy()
-    
-        # Extra info toevoegen (laatste datum, top locatie, top type)
-        def _mode_nonempty(s: pd.Series) -> str:
-            s = s.dropna().astype(str).str.strip()
-            s = s[(s != "") & (s.lower() != "(onbekend)") & (s.upper() != "#N/A")]
-            if s.empty:
-                return ""
-            return s.value_counts().index[0]
-    
-        extra = (
-            schade.groupby("personeelsnr", dropna=False)
-            .agg(
-                LaatsteDatum=("Datum_dt", "max"),
-                TopLocatie=("Locatie", _mode_nonempty),
-                TopType=("type", _mode_nonempty),
-            )
-            .reset_index()
-        )
-        extra["LaatsteDatum"] = pd.to_datetime(extra["LaatsteDatum"], errors="coerce").dt.strftime("%d-%m-%Y").fillna("")
-    
-        kandidaten = kandidaten.merge(extra, on="personeelsnr", how="left")
-    
-        # ----------------------------
-        # 4) KPI's
-        # ----------------------------
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Unieke chauffeurs met schade (jaar)", f"{per_driver['personeelsnr'].nunique()}")
-        k2.metric(f"Kandidaten (≥{min_schades}, niet gepland/niet voltooid)", f"{len(kandidaten)}")
-        k3.metric("Uitgesloten (gepland of voltooid)", f"{len(exclude_ids)}")
-    
-        st.divider()
-    
-        # ----------------------------
-        # 5) Tabel kandidaten
-        # ----------------------------
-        if kandidaten.empty:
-            st.success("Geen kandidaten die voldoen (alles is al gepland/voltooid of te weinig schade).")
-            st.stop()
-    
-        st.markdown("### 📌 Te coachen kandidaten")
-    
-        st.dataframe(
-            kandidaten,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "personeelsnr": st.column_config.TextColumn("P-nr", width="small"),
-                "volledige naam": st.column_config.TextColumn("Naam", width="medium"),
-                "Schades (jaar)": st.column_config.NumberColumn("Schades (jaar)", width="small"),
-                "LaatsteDatum": st.column_config.TextColumn("Laatste schade", width="small"),
-                "TopLocatie": st.column_config.TextColumn("Top locatie", width="medium"),
-                "TopType": st.column_config.TextColumn("Top type", width="medium"),
-            },
-        )
-    
-        # ----------------------------
-        # 6) Dossier (full width) voor gekozen chauffeur
-        # ----------------------------
-        st.markdown("### 🧾 Dossier: gekozen chauffeur")
-    
-        opties = (
-            kandidaten[["personeelsnr", "volledige naam"]]
-            .fillna("")
-            .astype(str)
-            .agg(" — ".join, axis=1)
-            .tolist()
-        )
-        gekozen = st.selectbox("Kies chauffeur", opties, index=0)
-    
-        gekozen_nummer = gekozen.split(" — ")[0].strip()
-    
-        # Detail schadegevallen voor gekozen chauffeur (jaarfilter)
-        sdf = schade[schade["personeelsnr"] == gekozen_nummer].copy()
-        if sdf.empty:
-            st.caption("Geen schadegevallen gevonden voor deze chauffeur (binnen selectie).")
-            st.stop()
-    
-        # Toon samenvatting
-        st.write(f"**Schades (jaar):** {len(sdf)}")
-        last_dt = pd.to_datetime(sdf["Datum_dt"], errors="coerce").max()
-        st.write(f"**Laatste schade datum:** {last_dt.strftime('%d-%m-%Y') if pd.notna(last_dt) else ''}")
-    
-        st.markdown("#### Detail schadegevallen (laatste 200)")
-        detail_cols = [c for c in ["Datum", "Locatie", "type", "bus/tram", "teamcoach", "voertuig", "Link"] if c in sdf.columns]
-        details = sdf[detail_cols].copy()
-        if "Datum" in details.columns:
-            details["Datum"] = details["Datum"].apply(format_ddmmyyyy)
-    
-        # Sorteer op datum (nieuwste eerst)
-        try:
-            details["_sort"] = sdf["Datum_dt"]
-            details = details.sort_values("_sort", ascending=False).drop(columns=["_sort"])
-        except Exception:
-            pass
-    
-        if "Link" in details.columns:
-            details["Link"] = details["Link"].replace({"": None})
-    
-        column_config = {}
-        if "Link" in details.columns:
-            column_config["Link"] = st.column_config.LinkColumn("Open EAF", display_text="Open EAF", width="small")
-    
-        st.dataframe(
-            details.head(200),
-            use_container_width=True,
-            hide_index=True,
-            column_config=column_config if column_config else None,
-        )
+elif current_page == "coaching":
+    st.subheader("Coaching — kandidaten (>= 3 schades, niet gepland/niet voltooid)")
 
+    # ----------------------------
+    # Helpers
+    # ----------------------------
+    def _to_dt(v):
+        return pd.to_datetime(v, dayfirst=True, errors="coerce")
+
+    # ----------------------------
+    # 1) Verzamel te EXCLUDEREN personeelsnrs:
+    # - gepland (df_coach_tab)  -> altijd, geen jaar
+    # - voltooid (df_coach_voltooid) -> best ALLES (niet enkel view), zodat je niemand opnieuw pakt
+    # ----------------------------
+    exclude_ids = set()
+
+    # Geplande coaching (tab "Coaching")
+    planned = df_coach_tab.copy() if df_coach_tab is not None else pd.DataFrame(columns=["nummer"])
+    if "nummer" in planned.columns:
+        planned["nummer"] = planned["nummer"].apply(clean_id)
+        exclude_ids |= set(planned["nummer"].dropna().astype(str))
+    else:
+        planned["nummer"] = ""
+
+    # Voltooide coaching (ALLES, niet year_view)
+    done_all = df_coach_voltooid.copy() if df_coach_voltooid is not None else pd.DataFrame(columns=["nummer"])
+    if "nummer" in done_all.columns:
+        done_all["nummer"] = done_all["nummer"].apply(clean_id)
+        exclude_ids |= set(done_all["nummer"].dropna().astype(str))
+    else:
+        done_all["nummer"] = ""
+
+    exclude_ids.discard("")  # veiligheid
+
+    # ----------------------------
+    # 2) Bouw schade-statistieken op basis van gekozen jaarfilter (df_schade_view)
+    # ----------------------------
+    schade = df_schade_view.copy()
+
+    if schade.empty:
+        st.info("Geen schadegegevens beschikbaar voor deze selectie.")
+        st.stop()
+
+    schade["personeelsnr"] = schade["personeelsnr"].apply(clean_id)
+    schade["volledige naam"] = schade["volledige naam"].fillna("").astype(str).str.strip()
+    schade["Datum_dt"] = schade["Datum"].apply(_to_dt)
+
+    # Normaliseer enkele velden (optioneel)
+    schade["Locatie"] = schade["Locatie"].fillna("").astype(str).str.strip().replace("", "(onbekend)")
+    schade["type"] = schade["type"].fillna("").astype(str).str.strip().replace("", "(onbekend)")
+
+    # Aantal schades per chauffeur (binnen jaarfilter)
+    per_driver = (
+        schade[schade["personeelsnr"] != ""]
+        .groupby(["personeelsnr", "volledige naam"], dropna=False)
+        .size()
+        .reset_index(name="Schades (jaar)")
+        .sort_values("Schades (jaar)", ascending=False)
+    )
+
+    # ----------------------------
+    # 3) Filter: >= 3 schades EN niet in exclude_ids
+    # ----------------------------
+    min_schades = st.slider("Minimum schades (jaar)", 3, 50, 3)
+    kandidaten = per_driver[per_driver["Schades (jaar)"] >= min_schades].copy()
+    kandidaten = kandidaten[~kandidaten["personeelsnr"].isin(exclude_ids)].copy()
+
+    # Extra info toevoegen (laatste datum, top locatie, top type)
+    def _mode_nonempty(s: pd.Series) -> str:
+        s = s.dropna().astype(str).str.strip()
+        s = s[(s != "") & (s.lower() != "(onbekend)") & (s.upper() != "#N/A")]
+        if s.empty:
+            return ""
+        return s.value_counts().index[0]
+
+    extra = (
+        schade.groupby("personeelsnr", dropna=False)
+        .agg(
+            LaatsteDatum=("Datum_dt", "max"),
+            TopLocatie=("Locatie", _mode_nonempty),
+            TopType=("type", _mode_nonempty),
+        )
+        .reset_index()
+    )
+    extra["LaatsteDatum"] = pd.to_datetime(extra["LaatsteDatum"], errors="coerce").dt.strftime("%d-%m-%Y").fillna("")
+
+    kandidaten = kandidaten.merge(extra, on="personeelsnr", how="left")
+
+    # ----------------------------
+    # 4) KPI's
+    # ----------------------------
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Unieke chauffeurs met schade (jaar)", f"{per_driver['personeelsnr'].nunique()}")
+    k2.metric(f"Kandidaten (≥{min_schades}, niet gepland/niet voltooid)", f"{len(kandidaten)}")
+    k3.metric("Uitgesloten (gepland of voltooid)", f"{len(exclude_ids)}")
+
+    st.divider()
+
+    # ----------------------------
+    # 5) Tabel kandidaten
+    # ----------------------------
+    if kandidaten.empty:
+        st.success("Geen kandidaten die voldoen (alles is al gepland/voltooid of te weinig schade).")
+        st.stop()
+
+    st.markdown("### 📌 Te coachen kandidaten")
+
+    st.dataframe(
+        kandidaten,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "personeelsnr": st.column_config.TextColumn("P-nr", width="small"),
+            "volledige naam": st.column_config.TextColumn("Naam", width="medium"),
+            "Schades (jaar)": st.column_config.NumberColumn("Schades (jaar)", width="small"),
+            "LaatsteDatum": st.column_config.TextColumn("Laatste schade", width="small"),
+            "TopLocatie": st.column_config.TextColumn("Top locatie", width="medium"),
+            "TopType": st.column_config.TextColumn("Top type", width="medium"),
+        },
+    )
+
+    # ----------------------------
+    # 6) Dossier (full width) voor gekozen chauffeur
+    # ----------------------------
+    st.markdown("### 🧾 Dossier: gekozen chauffeur")
+
+    opties = (
+        kandidaten[["personeelsnr", "volledige naam"]]
+        .fillna("")
+        .astype(str)
+        .agg(" — ".join, axis=1)
+        .tolist()
+    )
+    gekozen = st.selectbox("Kies chauffeur", opties, index=0)
+
+    gekozen_nummer = gekozen.split(" — ")[0].strip()
+
+    # Detail schadegevallen voor gekozen chauffeur (jaarfilter)
+    sdf = schade[schade["personeelsnr"] == gekozen_nummer].copy()
+    if sdf.empty:
+        st.caption("Geen schadegevallen gevonden voor deze chauffeur (binnen selectie).")
+        st.stop()
+
+    # Toon samenvatting
+    st.write(f"**Schades (jaar):** {len(sdf)}")
+    last_dt = pd.to_datetime(sdf["Datum_dt"], errors="coerce").max()
+    st.write(f"**Laatste schade datum:** {last_dt.strftime('%d-%m-%Y') if pd.notna(last_dt) else ''}")
+
+    st.markdown("#### Detail schadegevallen (laatste 200)")
+    detail_cols = [c for c in ["Datum", "Locatie", "type", "bus/tram", "teamcoach", "voertuig", "Link"] if c in sdf.columns]
+    details = sdf[detail_cols].copy()
+    if "Datum" in details.columns:
+        details["Datum"] = details["Datum"].apply(format_ddmmyyyy)
+
+    # Sorteer op datum (nieuwste eerst)
+    try:
+        details["_sort"] = sdf["Datum_dt"]
+        details = details.sort_values("_sort", ascending=False).drop(columns=["_sort"])
+    except Exception:
+        pass
+
+    if "Link" in details.columns:
+        details["Link"] = details["Link"].replace({"": None})
+
+    column_config = {}
+    if "Link" in details.columns:
+        column_config["Link"] = st.column_config.LinkColumn("Open EAF", display_text="Open EAF", width="small")
+
+    st.dataframe(
+        details.head(200),
+        use_container_width=True,
+        hide_index=True,
+        column_config=column_config if column_config else None,
+    )
