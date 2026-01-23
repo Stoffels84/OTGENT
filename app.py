@@ -443,6 +443,13 @@ def load_schade_df() -> pd.DataFrame:
             for alt in ["team coach", "team_coach", "coach", "teamcoach "]:
                 if alt in header_map:
                     return header_map[alt]
+
+        if col == "voertuig":
+            for c in header_map:
+            # robuuste match: alles wat 'voertuig' bevat
+                if "voertuig" in c.replace(" ", ""):
+                    return header_map[c]
+
         return None
 
     idx_map = {c: find_idx(c) for c in SCHADE_COLS}
