@@ -1408,31 +1408,28 @@ elif current_page == "locatie":
         tmp.groupby("Locatie", dropna=False)
         .agg(
             LaatsteDatum=("Datum", lambda x: pd.to_datetime(x, dayfirst=True, errors="coerce").max()),
-            TopType=("type", _mode_or_empty),
-            TopVoertuig=("voertuig", _mode_or_empty),
-            TopTeamcoach=("teamcoach", _mode_or_empty),
         )
         .reset_index()
+    )
     )
 
     # Forceer datetime dtype => .dt werkt altijd
     extra["LaatsteDatum"] = pd.to_datetime(extra["LaatsteDatum"], errors="coerce")
     extra["LaatsteDatum"] = extra["LaatsteDatum"].dt.strftime("%d-%m-%Y").fillna("")
 
-    top_table = locaties_counts.merge(extra, on="Locatie", how="left").head(top_n)
+    top_table = locaties_counts.head(top_n)
+
 
     st.dataframe(
         top_table,
         use_container_width=True,
         hide_index=True,
-        column_config={
-            "Locatie": st.column_config.TextColumn("Locatie", width="large"),
-            "Aantal": st.column_config.NumberColumn("Aantal", width="small"),
-            "LaatsteDatum": st.column_config.TextColumn("Laatste datum", width="small"),
-            "TopType": st.column_config.TextColumn("Meest voorkomend type", width="medium"),
-            "TopVoertuig": st.column_config.TextColumn("Meest voorkomend voertuig", width="small"),
-            "TopTeamcoach": st.column_config.TextColumn("Meest voorkomend teamcoach", width="medium"),
-        },
+    column_config={
+        "Locatie": st.column_config.TextColumn("Locatie", width="large"),
+        "Aantal": st.column_config.NumberColumn("Aantal", width="small"),
+    },
+
+
     )
 
     if top_table.empty:
