@@ -1678,6 +1678,10 @@ elif current_page == "coaching":
     # Instellingen
     # ----------------------------
     min_schades = st.slider("Minimum aantal schades", 2, 20, 3)
+    alleen_laatste_12m = st.checkbox(
+        "Verwijder chauffeurs die > 1 jaar schadevrij zijn",
+        value=True
+    )
 
     # ----------------------------
     # Helpers
@@ -1743,6 +1747,15 @@ elif current_page == "coaching":
         (per_driver["Schades"] >= min_schades)
         & (~per_driver["personeelsnr"].isin(exclude_ids))
     ].copy()
+
+    # ----------------------------
+    # Extra regel: verwijder > 1 jaar schadevrij
+    # ----------------------------
+    if alleen_laatste_12m:
+        ref_dt = pd.to_datetime(schade["Datum_dt"], errors="coerce").max()
+        if pd.notna(ref_dt):
+            cutoff = ref_dt - pd.Timedelta(days=365)
+            kandidaten = kandidaten[kandidaten["LaatsteDatum"] >= cutoff].copy()
 
     kandidaten = kandidaten.sort_values(
         ["Schades", "LaatsteDatum"],
