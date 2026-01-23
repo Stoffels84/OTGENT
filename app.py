@@ -71,7 +71,7 @@ def require_login() -> None:
     if st.session_state.get("auth_ok"):
         return
 
-    st.title("🔐 Inloggen")
+    st.title("🔐 Inloggen OT Gent")
     st.caption("Toegang is beveiligd. Meld aan om verder te gaan.")
 
     users = load_users_df()
