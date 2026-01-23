@@ -1501,39 +1501,7 @@ elif current_page == "locatie":
         st.caption("Teamcoach")
         st.dataframe(per_teamcoach, use_container_width=True, hide_index=True)
 
-    st.markdown("#### Detail-lijst (laatste 200)")
-
-    detail_cols = [
-        c for c in
-        ["Datum", "type", "voertuig", "bus/tram", "teamcoach", "volledige naam", "personeelsnr", "Link"]
-        if c in ldf.columns
-    ]
-    details = ldf[detail_cols].copy()
-
-    if "Datum" in details.columns:
-        details["Datum"] = details["Datum"].apply(format_ddmmyyyy)
-
-    # Sorteer op datum (nieuwste eerst) indien mogelijk
-    try:
-        sort_ts = pd.to_datetime(ldf["Datum"].astype(str), dayfirst=True, errors="coerce")
-        details["_sort"] = sort_ts
-        details = details.sort_values("_sort", ascending=False).drop(columns=["_sort"])
-    except Exception:
-        pass
-
-    if "Link" in details.columns:
-        details["Link"] = details["Link"].replace({"": None})
-
-    column_config = {}
-    if "Link" in details.columns:
-        column_config["Link"] = st.column_config.LinkColumn("Open EAF", display_text="Open EAF", width="small")
-
-    st.dataframe(
-        details.head(200),
-        use_container_width=True,
-        hide_index=True,
-        column_config=column_config if column_config else None,
-    )
+    
 
 elif current_page == "analyse":
     st.subheader("Analyse")
