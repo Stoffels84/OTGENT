@@ -1817,7 +1817,7 @@ elif current_page == "coaching":
     # ----------------------------
     # Werkqueue + dossier
     # ----------------------------
-    left, right = st.columns([1.25, 1.0], gap="large")
+    right = st.container()
 
     with right:
         st.markdown("### 🧾 Dossier: gekozen chauffeur")
