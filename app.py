@@ -1411,7 +1411,7 @@ elif current_page == "locatie":
         )
         .reset_index()
     )
-    )
+    
 
     # Forceer datetime dtype => .dt werkt altijd
     extra["LaatsteDatum"] = pd.to_datetime(extra["LaatsteDatum"], errors="coerce")
