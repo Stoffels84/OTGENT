@@ -742,9 +742,6 @@ def load_personeelsfiche_df() -> pd.DataFrame:
 st.set_page_config(page_title="Analyse en rapportering OT Gent", layout="wide")
 load_css(CSS_PATH)
 
-st.set_page_config(page_title="Analyse en rapportering OT Gent", layout="wide")
-load_css(CSS_PATH)
-
 require_login()
 logout_button()
 
