@@ -1786,9 +1786,7 @@ elif current_page == "coaching":
     # ----------------------------
     # Filters + sortering
     # ----------------------------
-    c1, c2, c3 = st.columns([1.4, 1.0, 1.0])
-    with c1:
-        q = st.text_input("Zoek (P-nr / naam / info)", placeholder="Typ om te filteren…").strip().lower()
+    c2, c3 = st.columns([1.0, 1.0])
     with c2:
         sort_opt = st.selectbox(
             "Sorteren op",
@@ -1798,16 +1796,12 @@ elif current_page == "coaching":
     with c3:
         min_schade = st.slider("Minimum schade (jaar)", 0, 50, 0)
 
+
     filtered = queue.copy()
 
-    if q:
-        # veilige search over nummer/naam/info
-        s = (
-            filtered["nummer"].fillna("").astype(str) + " " +
-            filtered["Chauffeurnaam"].fillna("").astype(str) + " " +
-            filtered["Info"].fillna("").astype(str)
-        ).str.lower()
-        filtered = filtered[s.str.contains(re.escape(q), na=False)].copy()
+    filtered = queue.copy()
+    filtered = filtered[filtered["Schade (jaar)"] >= min_schade].copy()
+
 
     filtered = filtered[filtered["Schade (jaar)"] >= min_schade].copy()
 
