@@ -777,7 +777,9 @@ logout_button()
 # ----------------------------
 # Load data (met status popup)
 # ----------------------------
-load_box = st.container()
+load_ph = st.empty()                 # <-- placeholder die we later kunnen wissen
+load_box = load_ph.container()       # <-- hier komt je status UI in
+
 load_box.info("📦 Data wordt geladen...")
 
 try:
@@ -798,13 +800,13 @@ try:
 
     load_box.success("🚀 Alle data succesvol geladen!")
     time.sleep(3)
-    load_box.empty()
-
+    load_ph.empty()                  # <-- dit wist alles
 
 except Exception as e:
     load_box.error("❌ Fout bij laden van data")
     st.exception(e)
     st.stop()
+
 
 
 df_personeel = load_personeelsfiche_df()
