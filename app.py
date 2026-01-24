@@ -893,7 +893,7 @@ df_coach_voltooid_view = (
 # Pages
 # ----------------------------
 if current_page == "dashboard":
-    st.subheader("Dashboard")
+    st.subheader("Dashboard (met update om 13u en 1u")
 
     q = st.text_input(
         "Zoek op personeelsnr of naam.",
