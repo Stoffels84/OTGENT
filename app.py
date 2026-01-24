@@ -9,10 +9,6 @@ import pandas as pd
 import streamlit as st
 import openpyxl
 import bcrypt
-import os
-import requests
-from io import BytesIO
-
 
 from pathlib import Path
 
@@ -124,12 +120,6 @@ def logout_button() -> None:
 # Paths / Config
 # ----------------------------
 APP_DIR = Path(__file__).parent
-
-HOST_BASE_URL = "https://otgent.borolo.be/data"  # <-- pas aan als jouw URL anders is
-
-HOST_USER = st.secrets["Christoff"]
-HOST_PASS = st.secrets["29076"]
-
 
 XLSM_PATH = APP_DIR / "schade met macro.xlsm"
 SCHADESHEET = "BRON"
