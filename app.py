@@ -351,7 +351,7 @@ def require_login() -> None:
     st.caption("Toegang is beveiligd. Meld aan om verder te gaan.")
 
     try:
-    with st.spinner("Gebruikerslijst ophalen…"):
+        with st.spinner("Gebruikerslijst ophalen…"):
         users = load_users_df()
 except Exception as e:
     st.error("Kan toegestaan_gebruik.xlsx niet ophalen/lezen van de server.")
