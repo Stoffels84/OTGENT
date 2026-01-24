@@ -12,6 +12,7 @@ import streamlit as st
 import openpyxl
 import bcrypt
 import requests
+import time
 
 from pathlib import Path
 
@@ -796,6 +797,9 @@ try:
         df_personeel = load_personeelsfiche_df()
 
     load_box.success("🚀 Alle data succesvol geladen!")
+    time.sleep(3)
+    load_box.empty()
+
 
 except Exception as e:
     load_box.error("❌ Fout bij laden van data")
