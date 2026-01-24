@@ -350,7 +350,15 @@ def require_login() -> None:
     st.title("🔐 Inloggen OT Gent")
     st.caption("Toegang is beveiligd. Meld aan om verder te gaan.")
 
-    users = load_users_df()
+    try:
+    with st.spinner("Gebruikerslijst ophalen…"):
+        users = load_users_df()
+except Exception as e:
+    st.error("Kan toegestaan_gebruik.xlsx niet ophalen/lezen van de server.")
+    st.exception(e)
+    st.stop()
+
+
 
     naam = st.text_input("Naam", placeholder="bv. janssens", key="login_naam")
     pw = st.text_input("Paswoord", type="password", key="login_pw")
