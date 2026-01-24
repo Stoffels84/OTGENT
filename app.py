@@ -83,18 +83,11 @@ PAGES = [
 # ----------------------------
 # Helpers
 # ----------------------------
-from contextlib import contextmanager
+def set_progress(bar, text_ph, current, total, label):
+    pct = int(current / total * 100)
+    bar.progress(pct)
+    text_ph.info(f"⏳ Bezig met laden: {label} ({current}/{total})")
 
-@contextmanager
-def loading_status(label: str, container):
-    line = container.empty()
-    line.info(f"⏳ {label}...")
-    try:
-        yield
-        line.success(f"✅ {label}")
-    except Exception:
-        line.error(f"❌ {label}")
-        raise
 
 
 
@@ -777,35 +770,52 @@ logout_button()
 # ----------------------------
 # Load data (met status popup)
 # ----------------------------
-load_ph = st.empty()                 # <-- placeholder die we later kunnen wissen
-load_box = load_ph.container()       # <-- hier komt je status UI in
+# ----------------------------
+# Load data (met progress bar)
+# ----------------------------
+import time
 
-load_box.info("📦 Data wordt geladen...")
+load_ph = st.empty()
+with load_ph.container():
+    st.info("📦 Data wordt geladen...")
 
-try:
-    with loading_status("Schade (schade met macro.xlsm)", load_box):
+    bar = st.progress(0)
+    text_ph = st.empty()
+
+    total = 5
+    step = 0
+
+    try:
+        step += 1
+        set_progress(bar, text_ph, step, total, "Schade (schade met macro.xlsm)")
         df_schade = load_schade_df()
 
-    with loading_status("Gesprekken (Overzicht gesprekken.xlsx)", load_box):
+        step += 1
+        set_progress(bar, text_ph, step, total, "Gesprekken (Overzicht gesprekken.xlsx)")
         df_gesprekken = load_gesprekken_df()
 
-    with loading_status("Voltooide coachings (Coachingslijst.xlsx)", load_box):
+        step += 1
+        set_progress(bar, text_ph, step, total, "Voltooide coachings (Coachingslijst.xlsx)")
         df_coach_voltooid = load_coaching_voltooid_df()
 
-    with loading_status("Geplande coachings (Coachingslijst.xlsx)", load_box):
+        step += 1
+        set_progress(bar, text_ph, step, total, "Geplande coachings (Coachingslijst.xlsx)")
         df_coach_tab = load_coaching_tab_df()
 
-    with loading_status("Personeelsfiche (JSON lokaal)", load_box):
+        step += 1
+        set_progress(bar, text_ph, step, total, "Personeelsfiche (JSON lokaal)")
         df_personeel = load_personeelsfiche_df()
 
-    load_box.success("🚀 Alle data succesvol geladen!")
-    time.sleep(3)
-    load_ph.empty()                  # <-- dit wist alles
+        bar.progress(100)
+        text_ph.success("🚀 Alle data succesvol geladen!")
+        time.sleep(2)
+        load_ph.empty()
 
-except Exception as e:
-    load_box.error("❌ Fout bij laden van data")
-    st.exception(e)
-    st.stop()
+    except Exception as e:
+        text_ph.error("❌ Fout bij laden van data")
+        st.exception(e)
+        st.stop()
+
 
 
 
