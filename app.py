@@ -82,6 +82,22 @@ PAGES = [
 # ----------------------------
 # Helpers
 # ----------------------------
+from contextlib import contextmanager
+
+@contextmanager
+def loading_status(label: str, container):
+    line = container.empty()
+    line.info(f"⏳ {label}...")
+    try:
+        yield
+        line.success(f"✅ {label}")
+    except Exception:
+        line.error(f"❌ {label}")
+        raise
+
+
+
+
 def load_css(path: Path) -> None:
     """Load CSS from external file and inject into Streamlit."""
     if not path.exists():
@@ -757,29 +773,35 @@ logout_button()
 # ----------------------------
 # Load data
 # ----------------------------
+# ----------------------------
+# Load data (met status popup)
+# ----------------------------
+load_box = st.container()
+load_box.info("📦 Data wordt geladen...")
+
 try:
-    df_schade = load_schade_df()
+    with loading_status("Schade (schade met macro.xlsm)", load_box):
+        df_schade = load_schade_df()
+
+    with loading_status("Gesprekken (Overzicht gesprekken.xlsx)", load_box):
+        df_gesprekken = load_gesprekken_df()
+
+    with loading_status("Voltooide coachings (Coachingslijst.xlsx)", load_box):
+        df_coach_voltooid = load_coaching_voltooid_df()
+
+    with loading_status("Geplande coachings (Coachingslijst.xlsx)", load_box):
+        df_coach_tab = load_coaching_tab_df()
+
+    with loading_status("Personeelsfiche (JSON lokaal)", load_box):
+        df_personeel = load_personeelsfiche_df()
+
+    load_box.success("🚀 Alle data succesvol geladen!")
+
 except Exception as e:
-    st.error(f"Kan schade-data niet laden: {e}")
+    load_box.error("❌ Fout bij laden van data")
+    st.exception(e)
     st.stop()
 
-try:
-    df_gesprekken = load_gesprekken_df()
-except Exception as e:
-    st.warning(f"Gesprekkenbestand niet geladen: {e}")
-    df_gesprekken = pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search", "_jaar"])
-
-try:
-    df_coach_voltooid = load_coaching_voltooid_df()
-except Exception as e:
-    st.warning(f"Voltooide coachings niet geladen: {e}")
-    df_coach_voltooid = pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Datum", "Info", "_search", "_jaar"])
-
-try:
-    df_coach_tab = load_coaching_tab_df()
-except Exception as e:
-    st.warning(f"Tabblad 'Coaching' niet geladen: {e}")
-    df_coach_tab = pd.DataFrame(columns=["nummer", "Chauffeurnaam", "Info", "_search"])
 
 df_personeel = load_personeelsfiche_df()
 
