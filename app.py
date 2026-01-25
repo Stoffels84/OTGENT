@@ -22,7 +22,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).parent
 CSS_PATH = APP_DIR / "styles.css"
 LOGO_PATH = APP_DIR / "logo.png"
-PERSONEEL_JSON_PATH = APP_DIR / "personeelsficheGB.json"
+PERSONEEL_JSON_NAME = "personeelsficheGB.json"
 
 # ----------------------------
 # Remote data config (Excel files)
@@ -699,15 +699,24 @@ def load_coaching_tab_df() -> pd.DataFrame:
     ).str.lower()
     return df
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=3600)
 def load_personeelsfiche_df() -> pd.DataFrame:
-    if not PERSONEEL_JSON_PATH.exists():
-        return pd.DataFrame(columns=["_search"])
+    """
+    Personeelsfiche (JSON) van shared hosting
+    """
+    url = data_url(PERSONEEL_JSON_NAME)
+    content = fetch_bytes(url)
+
+    # JSON decode (robust)
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1", errors="replace")
 
     try:
-        data = json.loads(PERSONEEL_JSON_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        data = json.loads(PERSONEEL_JSON_PATH.read_text())
+        data = json.loads(text)
+    except Exception as e:
+        raise ValueError(f"Kan JSON niet parsen uit {PERSONEEL_JSON_NAME}: {e}")
 
     records = _flatten_json_to_records(data)
     if not records:
@@ -753,7 +762,9 @@ def load_personeelsfiche_df() -> pd.DataFrame:
     for s in parts[1:]:
         df["_search"] = df["_search"].astype(str) + " " + s.astype(str)
     df["_search"] = df["_search"].str.lower()
+
     return df
+
 
 # ----------------------------
 # Streamlit setup
@@ -995,6 +1006,135 @@ if current_page == "dashboard":
             col_widths={"nummer": "90px", "Chauffeurnaam": "180px", "Datum": "120px", "Info": "auto"},
             max_height_px=520,
         )
+
+
+    # ----------------------------
+    # Tijdlijn (onderaan dashboard)
+    # ----------------------------
+    st.divider()
+    st.markdown("## 🧾 Tijdlijn (samenvatting van bovenstaande)")
+
+    def _to_dt(v):
+        return pd.to_datetime(v, dayfirst=True, errors="coerce")
+
+    timeline_rows = []
+
+    # 1) Schade
+    if not schade_hits.empty:
+        s = schade_hits.copy()
+        s["_dt"] = s["Datum"].apply(_to_dt)
+        for _, r in s.iterrows():
+            summary_parts = []
+            loc = str(r.get("Locatie", "") or "").strip()
+            typ = str(r.get("type", "") or "").strip()
+            veh = str(r.get("voertuig", "") or "").strip()
+            bt  = str(r.get("bus/tram", "") or "").strip()
+            tc  = str(r.get("teamcoach", "") or "").strip()
+
+            if typ: summary_parts.append(f"Type: {typ}")
+            if loc: summary_parts.append(f"Locatie: {loc}")
+            if veh: summary_parts.append(f"Voertuig: {veh}")
+            if bt:  summary_parts.append(f"Bus/Tram: {bt}")
+            if tc:  summary_parts.append(f"Teamcoach: {tc}")
+
+            timeline_rows.append({
+                "Datum": r.get("Datum", ""),
+                "_dt": r.get("_dt", pd.NaT),
+                "Bron": "Schade",
+                "P-nr": r.get("personeelsnr", ""),
+                "Naam": r.get("volledige naam", ""),
+                "Samenvatting": " | ".join(summary_parts) if summary_parts else "",
+                "Link": r.get("Link", ""),
+            })
+
+    # 2) Overzicht gesprekken
+    if not gesprekken_hits.empty:
+        g = gesprekken_hits.copy()
+        g["_dt"] = g["Datum"].apply(_to_dt)
+        for _, r in g.iterrows():
+            timeline_rows.append({
+                "Datum": r.get("Datum", ""),
+                "_dt": r.get("_dt", pd.NaT),
+                "Bron": "Gesprek",
+                "P-nr": r.get("nummer", ""),
+                "Naam": r.get("Chauffeurnaam", ""),
+                "Samenvatting": str(r.get("Info", "") or "").strip(),
+                "Link": "",  # gesprekken hebben geen Link-kolom
+            })
+
+    # 3) Voltooide coaching
+    if not coach_volt_hits.empty:
+        v = coach_volt_hits.copy()
+        v["_dt"] = v["Datum"].apply(_to_dt)
+        for _, r in v.iterrows():
+            timeline_rows.append({
+                "Datum": r.get("Datum", ""),
+                "_dt": r.get("_dt", pd.NaT),
+                "Bron": "Coaching (voltooid)",
+                "P-nr": r.get("nummer", ""),
+                "Naam": r.get("Chauffeurnaam", ""),
+                "Samenvatting": str(r.get("Info", "") or "").strip(),
+                "Link": "",
+            })
+
+    # 4) Geplande coaching (geen datum aanwezig → NaT)
+    if not coach_tab_hits.empty:
+        ct = coach_tab_hits.copy()
+        for _, r in ct.iterrows():
+            timeline_rows.append({
+                "Datum": "",              # geen datum
+                "_dt": pd.NaT,            # zodat dit onderaan sorteert
+                "Bron": "Coaching (gepland)",
+                "P-nr": r.get("nummer", ""),
+                "Naam": r.get("Chauffeurnaam", ""),
+                "Samenvatting": str(r.get("Info", "") or "").strip(),
+                "Link": "",
+            })
+
+    if not timeline_rows:
+        st.caption("Geen items voor tijdlijn gevonden bij deze zoekterm.")
+    else:
+        tl = pd.DataFrame(timeline_rows)
+
+        # sorteer: meest recent eerst, NaT onderaan
+        tl = tl.sort_values(by="_dt", ascending=False, na_position="last").drop(columns=["_dt"])
+
+        # Datum formateren (dd-mm-jjjj)
+        tl["Datum"] = tl["Datum"].apply(format_ddmmyyyy)
+        tl["Link"] = tl["Link"].replace({"": None})
+
+        # Beperk aantal rijen (veilig voor performance)
+        tl = tl.head(300)
+
+        column_config = {
+            "Datum": st.column_config.TextColumn("Datum", width="small"),
+            "Bron": st.column_config.TextColumn("Bron", width="small"),
+            "P-nr": st.column_config.TextColumn("P-nr", width="small"),
+            "Naam": st.column_config.TextColumn("Naam", width="medium"),
+            "Samenvatting": st.column_config.TextColumn("Samenvatting", width="large"),
+        }
+        if "Link" in tl.columns:
+            column_config["Link"] = st.column_config.LinkColumn("Open EAF", display_text="Open EAF", width="small")
+
+        st.dataframe(
+            tl,
+            use_container_width=True,
+            hide_index=True,
+            column_config=column_config,
+        )
+
+        st.caption("Tip: gebruik de zoekbalk bovenaan om de tijdlijn per chauffeur/personeelsnr te bekijken.")
+
+
+
+
+
+
+
+
+
+
+
 
 elif current_page == "chauffeur":
     st.subheader("Chauffeur")
