@@ -766,14 +766,7 @@ logout_button()
 
 # ----------------------------
 # Load data
-# ----------------------------
-# ----------------------------
-# Load data (met status popup)
-# ----------------------------
-# ----------------------------
-# Load data (met progress bar)
-# ----------------------------
-import time
+# -------------
 
 load_ph = st.empty()
 with load_ph.container():
