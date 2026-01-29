@@ -932,7 +932,7 @@ with c1:
           {logo_html}
           <div>
             <div class="ot-title">Analyse en rapportering OT Gent</div>
-            <div class="ot-sub">schade</div>
+            <div class="ot-sub">Personeelsfiche - Schade - Gesprekken</div>
           </div>
         </div>
         """,
