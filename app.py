@@ -1124,20 +1124,33 @@ if current_page == "dashboard":
             out.append((label, chosen))
         return out
     
-    selected = st_searchbox(
-        search_people,
-        placeholder="Typ personeelsnr, voertuig of naam…",
-        label="Zoek op personeelsnr, voertuig of naam.",
-        key="dash_searchbox",
-        debounce=200,          # iets trager/sneller? 150–300 is meestal goed
-        clear_on_submit=False,
-    )
+    # --- Dashboard: zoekveld ZONDER dropdown-suggesties zodra er gezocht is ---
     
-    q = (selected or "").strip().lower()
+    # init state
+    if "q_input" not in st.session_state:
+        st.session_state["q_input"] = ""
+    if "q" not in st.session_state:
+        st.session_state["q"] = ""
+    
+    cA, cB = st.columns([5, 1])
+    with cA:
+        st.text_input(
+            "Zoek op personeelsnr, voertuig of naam.",
+            placeholder="Typ personeelsnr, voertuig of naam…",
+            key="q_input",
+        )
+    
+    with cB:
+        if st.button("Zoek", use_container_width=True):
+            st.session_state["q"] = (st.session_state.get("q_input") or "").strip().lower()
+    
+    q = (st.session_state.get("q") or "").strip().lower()
     
     if not q:
-        st.caption("Typ om suggesties te zien en kies er één.")
+        st.caption("Typ een zoekterm en klik op **Zoek**.")
         st.stop()
+
+
 
 
 
