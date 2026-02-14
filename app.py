@@ -765,19 +765,17 @@ if "dienst_gisteren_df" in errors:
     st.error(f"Fout bij laden steekkaart (gisteren): {errors['dienst_gisteren_df']}")
 render_dienst_block("Gisteren", dienst_gisteren_df, "Bronbestand (gisteren)")
 
-st.divider()
 
 if "dienst_vandaag_df" in errors:
     st.error(f"Fout bij laden steekkaart (vandaag): {errors['dienst_vandaag_df']}")
 render_dienst_block("Vandaag", dienst_vandaag_df, "Bronbestand (vandaag)")
 
-st.divider()
 
 if "dienst_morgen_df" in errors:
     st.error(f"Fout bij laden steekkaart (morgen): {errors['dienst_morgen_df']}")
 render_dienst_block("Morgen", dienst_morgen_df, "Bronbestand (morgen)")
 
-st.divider()
+
 
 
 # ============================================================
