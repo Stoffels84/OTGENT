@@ -15,6 +15,7 @@
 # ✅ find_person_record deduplicated
 # ✅ Subtitels Gisteren/Vandaag/Morgen gecentreerd
 # ✅ Dienst-blokken (titel + caption + tabel) gecentreerd + smaller
+# ✅ Sidebar: logo.png bovenaan
 # ============================================================
 
 from __future__ import annotations
@@ -105,7 +106,14 @@ def find_person_record(data, personeelnummer: str):
     if isinstance(data, list):
         for item in data:
             if isinstance(item, dict):
-                for key in ["personeelnummer", "personeelsnummer", "pnr", "PNR", "Personeelnummer", "Personeelsnummer"]:
+                for key in [
+                    "personeelnummer",
+                    "personeelsnummer",
+                    "pnr",
+                    "PNR",
+                    "Personeelnummer",
+                    "Personeelsnummer",
+                ]:
                     if key in item and normalize_pnr(item.get(key)) == target:
                         return item
         return None
@@ -371,6 +379,9 @@ def login_gate() -> None:
 
 login_gate()
 
+# ✅ LOGO BOVENAAN IN SIDEBAR (bestand: ./logo.png)
+st.sidebar.image("logo.png", use_container_width=True)
+
 with st.sidebar:
     st.write(f"Ingelogd als: **{st.session_state.get('user_name','')}**")
     if st.button("Uitloggen"):
@@ -538,7 +549,9 @@ def load_coachings_dfs() -> dict:
         else:
             missing2.append(w)
     if not selected2:
-        raise KeyError(f"Geen verwachte kolommen gevonden in tabblad 'Voltooide coachings'. Kolommen: {list(df_voltooid.columns)}")
+        raise KeyError(
+            f"Geen verwachte kolommen gevonden in tabblad 'Voltooide coachings'. Kolommen: {list(df_voltooid.columns)}"
+        )
 
     voltooid = df_voltooid[selected2].copy()
     voltooid.attrs["missing_columns"] = missing2
@@ -765,17 +778,13 @@ if "dienst_gisteren_df" in errors:
     st.error(f"Fout bij laden steekkaart (gisteren): {errors['dienst_gisteren_df']}")
 render_dienst_block("Gisteren", dienst_gisteren_df, "Bronbestand (gisteren)")
 
-
 if "dienst_vandaag_df" in errors:
     st.error(f"Fout bij laden steekkaart (vandaag): {errors['dienst_vandaag_df']}")
 render_dienst_block("Vandaag", dienst_vandaag_df, "Bronbestand (vandaag)")
 
-
 if "dienst_morgen_df" in errors:
     st.error(f"Fout bij laden steekkaart (morgen): {errors['dienst_morgen_df']}")
 render_dienst_block("Morgen", dienst_morgen_df, "Bronbestand (morgen)")
-
-
 
 
 # ============================================================
